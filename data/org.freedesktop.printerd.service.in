@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.freedesktop.printerd
+Exec=@privlibdir@/printerdd
+User=root
+SystemdService=printerd.service

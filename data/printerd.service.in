@@ -1,0 +1,7 @@
+[Unit]
+Description=Printer Daemon
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.printerd
+ExecStart=@privlibdir@/printerd
