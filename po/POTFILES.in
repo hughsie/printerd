@@ -1,1 +1,2 @@
 data/org.freedesktop.printerd.policy.in
+src/main.c
