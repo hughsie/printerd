@@ -18,23 +18,21 @@
  *
  */
 
-#ifndef __PD_DAEMON_TYPES_H__
-#define __PD_DAEMON_TYPES_H__
+#ifndef __PD_MANAGER_IMPL_H__
+#define __PD_MANAGER_IMPL_H__
 
-#include <gio/gio.h>
-#include <polkit/polkit.h>
-#include <printerd/printerd.h>
-#include <gudev/gudev.h>
+#include "pd-daemontypes.h"
 
-#include <sys/types.h>
+G_BEGIN_DECLS
 
-struct _PdDaemon;
-typedef struct _PdDaemon PdDaemon;
+#define PD_TYPE_MANAGER_IMPL	(pd_manager_impl_get_type ())
+#define PD_MANAGER_IMPL(o)	(G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_MANAGER_IMPL, PdManagerImpl))
+#define PD_IS_MANAGER_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_MANAGER_IMPL))
 
-struct _PdEngine;
-typedef struct _PdEngine PdEngine;
+GType		 pd_manager_impl_get_type	(void) G_GNUC_CONST;
+PdManager	*pd_manager_impl_new		(PdDaemon	*daemon);
+PdDaemon	*pd_manager_impl_get_daemon	(PdManagerImpl	*manager);
 
-struct _PdManagerImpl;
-typedef struct _PdManagerImpl PdManagerImpl;
+G_END_DECLS
 
-#endif /* __PD_DAEMON_TYPES_H__ */
+#endif /* __PD_MANAGER_IMPL_H__ */

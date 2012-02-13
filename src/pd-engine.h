@@ -68,6 +68,7 @@ PdEngine	*pd_engine_new			(PdDaemon	*daemon);
 PdDaemon	*pd_engine_get_daemon		(PdEngine	*engine);
 GUdevClient	*pd_engine_get_udev_client	(PdEngine	*engine);
 void		 pd_engine_start		(PdEngine	*engine);
+gboolean	 pd_engine_get_coldplug		(PdEngine	*engine);
 
 G_END_DECLS
 

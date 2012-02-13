@@ -25,6 +25,7 @@
 
 #include "pd-daemon.h"
 #include "pd-engine.h"
+#include "pd-manager-impl.h"
 
 /**
  * SECTION:printerdengine
@@ -36,9 +37,11 @@
 
 struct _PdEnginePrivate
 {
-	PdDaemon *daemon;
-	GFileMonitor *monitor;
-	GUdevClient *gudev_client;
+	gboolean	 coldplug;
+	GFileMonitor	*monitor;
+	GUdevClient	*gudev_client;
+	PdDaemon	*daemon;
+	PdObjectSkeleton *manager_object;
 };
 
 enum
@@ -181,6 +184,21 @@ pd_engine_get_daemon (PdEngine *engine)
 }
 
 /**
+ * pd_engine_get_coldplug:
+ * @engine: A #PdEngine.
+ *
+ * Gets whether @engine is in the coldplug phase.
+ *
+ * Returns: %TRUE if in the coldplug phase, %FALSE otherwise.
+ **/
+gboolean
+pd_engine_get_coldplug (PdEngine *engine)
+{
+	g_return_val_if_fail (PD_IS_ENGINE (engine), FALSE);
+	return engine->priv->coldplug;
+}
+
+/**
  * pd_engine_start:
  * @engine: A #PdEngine.
  *
@@ -189,8 +207,35 @@ pd_engine_get_daemon (PdEngine *engine)
 void
 pd_engine_start	(PdEngine *engine)
 {
-	g_return_if_fail (PD_IS_ENGINE (engine));
-	/* do stuff */
+	GList *devices;
+	GList *l;
+	PdDaemon *daemon;
+	PdManager *manager;
+
+	engine->priv->manager_object = pd_object_skeleton_new ("/org/freedesktop/printerd/Manager");
+
+	/* create manager object */
+	daemon = pd_engine_get_daemon (PD_ENGINE (engine));
+	manager = pd_manager_impl_new (daemon);
+	pd_object_skeleton_set_manager (engine->priv->manager_object, manager);
+	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
+					     G_DBUS_OBJECT_SKELETON (engine->priv->manager_object));
+
+//	engine->priv->sysfs_path_to_drive = g_hash_table_new_full (g_str_hash,
+//								   g_str_equal,
+//								   g_free,
+//								   NULL);
+
+	/* coldplug */
+	engine->priv->coldplug = TRUE;
+	devices = g_udev_client_query_by_subsystem (engine->priv->gudev_client, "usb");
+	for (l = devices; l != NULL; l = l->next)
+		pd_engine_handle_uevent (engine, "add", G_UDEV_DEVICE (l->data));
+	engine->priv->coldplug = FALSE;
+
+	g_object_unref (manager);
+	g_list_foreach (devices, (GFunc) g_object_unref, NULL);
+	g_list_free (devices);
 }
 
 /**
