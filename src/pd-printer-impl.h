@@ -18,26 +18,19 @@
  *
  */
 
-#ifndef __PD_DAEMON_TYPES_H__
-#define __PD_DAEMON_TYPES_H__
+#ifndef __PD_PRINTER_IMPL_H__
+#define __PD_PRINTER_IMPL_H__
 
-#include <gio/gio.h>
-#include <polkit/polkit.h>
-#include <printerd/printerd.h>
-#include <gudev/gudev.h>
+#include "pd-daemontypes.h"
 
-#include <sys/types.h>
+G_BEGIN_DECLS
 
-struct _PdDaemon;
-typedef struct _PdDaemon PdDaemon;
+#define PD_TYPE_PRINTER_IMPL	(pd_printer_impl_get_type ())
+#define PD_PRINTER_IMPL(o)	(G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_PRINTER_IMPL, PdPrinterImpl))
+#define PD_IS_PRINTER_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_PRINTER_IMPL))
 
-struct _PdEngine;
-typedef struct _PdEngine PdEngine;
+GType		 pd_printer_impl_get_type	(void) G_GNUC_CONST;
 
-struct _PdManagerImpl;
-typedef struct _PdManagerImpl PdManagerImpl;
+G_END_DECLS
 
-struct _PdPrinterImpl;
-typedef struct _PdPrinterImpl PdPrinterImpl;
-
-#endif /* __PD_DAEMON_TYPES_H__ */
+#endif /* __PD_PRINTER_IMPL_H__ */

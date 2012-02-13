@@ -26,6 +26,7 @@
 #include "pd-daemon.h"
 #include "pd-engine.h"
 #include "pd-manager-impl.h"
+#include "pd-printer-impl.h"
 
 /**
  * SECTION:printerdengine
@@ -42,6 +43,7 @@ struct _PdEnginePrivate
 	GUdevClient	*gudev_client;
 	PdDaemon	*daemon;
 	PdObjectSkeleton *manager_object;
+	GHashTable	*path_to_printer;
 };
 
 enum
@@ -59,6 +61,7 @@ pd_engine_finalize (GObject *object)
 
 	/* note: we don't hold a ref to engine->priv->daemon */
 	g_object_unref (engine->priv->gudev_client);
+	g_hash_table_unref (engine->priv->path_to_printer);
 
 	if (G_OBJECT_CLASS (pd_engine_parent_class)->finalize != NULL)
 		G_OBJECT_CLASS (pd_engine_parent_class)->finalize (object);
@@ -105,13 +108,130 @@ pd_engine_set_property (GObject *object,
 }
 
 static void
+pd_engine_printer_remove (PdEngine *engine,
+			  PdPrinter *printer)
+{
+	g_debug ("remove printer");
+}
+
+/**
+ * pd_ensure_dbus_path:
+ **/
+static gchar *
+pd_ensure_dbus_path (gchar *object_path)
+{
+	gchar *object_path_tmp;
+	object_path_tmp = g_strdup (object_path);
+	g_strcanon (object_path_tmp,
+		    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		    "abcdefghijklmnopqrstuvwxyz"
+		    "1234567890_/",
+		    '_');
+	return object_path_tmp;
+}
+
+static PdPrinter *
+pd_engine_printer_add (PdEngine *engine,
+		       GUdevDevice *device)
+{
+	const gchar *id_model;
+	const gchar *id_vendor;
+	const gchar *ieee1284_id;
+	const gchar *serial;
+	gchar *object_path_tmp = NULL;
+	GString *object_path = NULL;
+	GUdevDevice *parent = NULL;
+	PdDaemon *daemon;
+	PdPrinter *printer = NULL;
+
+	/* get the IEEE1284 ID from the interface device */
+	ieee1284_id = g_udev_device_get_sysfs_attr (device, "ieee1284_id");
+	if (ieee1284_id == NULL) {
+		g_warning ("failed to get IEEE1284 from %s",
+			   g_udev_device_get_sysfs_path (device));
+		goto out;
+	}
+
+	/* get the device properties from the parent device */
+	parent = g_udev_device_get_parent (device);
+	id_vendor = g_udev_device_get_property (parent, "ID_VENDOR");
+	id_model = g_udev_device_get_property (parent, "ID_MODEL");
+	serial = g_udev_device_get_property (parent, "ID_SERIAL_SHORT");
+
+	printer = PD_PRINTER (g_object_new (PD_TYPE_PRINTER_IMPL,
+					    "serial", serial,
+					    "model", id_model,
+					    "vendor", id_vendor,
+					    "ieee1284id", ieee1284_id,
+					    "sysfs-path", g_udev_device_get_sysfs_path (device),
+					    NULL));
+
+	g_debug ("add printer %s:%s:%s [%s]",
+		 id_vendor, id_model, serial, ieee1284_id);
+
+	/* devise object path */
+	object_path = g_string_new ("/org/freedesktop/printerd/printer/");
+	if (id_vendor != NULL)
+		g_string_append_printf (object_path, "%s_", id_vendor);
+	if (id_model != NULL)
+		g_string_append_printf (object_path, "%s_", id_model);
+	if (serial != NULL)
+		g_string_append_printf (object_path, "%s_", serial);
+	g_string_set_size (object_path, object_path->len - 1);
+	object_path_tmp = pd_ensure_dbus_path (object_path->str);
+
+	/* export on bus */
+	engine->priv->manager_object = pd_object_skeleton_new (object_path_tmp);
+	daemon = pd_engine_get_daemon (PD_ENGINE (engine));
+	pd_object_skeleton_set_printer (engine->priv->manager_object, printer);
+	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
+					     G_DBUS_OBJECT_SKELETON (engine->priv->manager_object));
+out:
+	g_free (object_path_tmp);
+	if (object_path != NULL)
+		g_string_free (object_path, TRUE);
+	if (parent != NULL)
+		g_object_unref (parent);
+	return printer;
+}
+
+static void
 pd_engine_handle_uevent (PdEngine *engine,
 			 const gchar *action,
 			 GUdevDevice *device)
 {
-	g_debug ("uevent %s %s",
-		action,
-		g_udev_device_get_sysfs_path (device));
+	gint i_class;
+	gint i_subclass;
+	PdPrinter *printer;
+
+	if (g_strcmp0 (action, "remove") == 0) {
+
+		/* look for existing device */
+		printer = g_hash_table_lookup (engine->priv->path_to_printer,
+					       g_udev_device_get_sysfs_path (device));
+		if (printer != NULL) {
+			pd_engine_printer_remove (engine, printer);
+			g_hash_table_remove (engine->priv->path_to_printer,
+					     g_udev_device_get_sysfs_path (device));
+		}
+		return;
+	}
+	if (g_strcmp0 (action, "add") == 0) {
+
+		/* not a printer */
+		i_class = g_udev_device_get_sysfs_attr_as_int (device, "bInterfaceClass");
+		i_subclass = g_udev_device_get_sysfs_attr_as_int (device, "bInterfaceSubClass");
+		if (i_class != 0x07 ||
+		    i_subclass != 0x01)
+			return;
+
+		/* add to hash and add to database */
+		printer = pd_engine_printer_add (engine, device);
+		g_hash_table_insert (engine->priv->path_to_printer,
+				     g_strdup (g_udev_device_get_sysfs_path (device)),
+				     (gpointer) printer);
+		return;
+	}
 }
 
 static void
@@ -221,10 +341,11 @@ pd_engine_start	(PdEngine *engine)
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (engine->priv->manager_object));
 
-//	engine->priv->sysfs_path_to_drive = g_hash_table_new_full (g_str_hash,
-//								   g_str_equal,
-//								   g_free,
-//								   NULL);
+	/* keep a hash to detect removal */
+	engine->priv->path_to_printer = g_hash_table_new_full (g_str_hash,
+							       g_str_equal,
+							       g_free,
+							       g_object_unref);
 
 	/* coldplug */
 	engine->priv->coldplug = TRUE;

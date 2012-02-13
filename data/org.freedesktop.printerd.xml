@@ -59,8 +59,8 @@
     <property name="Vendor" type="s" access="read"/>
     <!-- Model: A name for the model of the printer or blank if unknown. -->
     <property name="Model" type="s" access="read"/>
-    <!-- Revision: Firmware Revision or blank if unknown. -->
-    <property name="Revision" type="s" access="read"/>
+    <!-- Revision: IEEE1284 ID or blank if unknown. -->
+    <property name="Ieee1284Id" type="s" access="read"/>
     <!-- Serial: Serial number of the printer or blank if unknown. -->
     <property name="Serial" type="s" access="read"/>
 
