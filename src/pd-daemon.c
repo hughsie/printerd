@@ -22,6 +22,7 @@
 #include <glib/gi18n-lib.h>
 
 #include "pd-daemon.h"
+#include "pd-engine.h"
 
 /**
  * SECTION:printerddaemon
@@ -44,6 +45,7 @@ struct _PdDaemon
 	GObject parent_instance;
 	GDBusConnection *connection;
 	GDBusObjectManagerServer *object_manager;
+	PdEngine *engine;
 	PolkitAuthority *authority;
 };
 
@@ -69,6 +71,7 @@ pd_daemon_finalize (GObject *object)
 	g_object_unref (daemon->authority);
 	g_object_unref (daemon->object_manager);
 	g_object_unref (daemon->connection);
+	g_object_unref (daemon->engine);
 
 	if (G_OBJECT_CLASS (pd_daemon_parent_class)->finalize != NULL)
 		G_OBJECT_CLASS (pd_daemon_parent_class)->finalize (object);
@@ -130,6 +133,8 @@ pd_daemon_constructed (GObject *object)
 		g_error_free (error);
 	}
 	daemon->object_manager = g_dbus_object_manager_server_new ("/org/freedesktop/printerd");
+	daemon->engine = pd_engine_new (daemon);
+	pd_engine_start (daemon->engine);
 
 	/* Export the ObjectManager */
 	g_dbus_object_manager_server_set_connection (daemon->object_manager,

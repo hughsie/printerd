@@ -31,20 +31,8 @@
 struct _PdDaemon;
 typedef struct _PdDaemon PdDaemon;
 
-struct _PdProvider;
-typedef struct _PdProvider PdProvider;
-
-struct _PdDriveObject;
-typedef struct _PdDriveObject PdDriveObject;
-
-struct _PdDrive;
-typedef struct _PdDrive PdDrive;
-
-struct _PdDriveAta;
-typedef struct _PdDriveAta PdDriveAta;
-
-struct _PdProvider;
-typedef struct _PdProvider PdProvider;
+struct _PdEngine;
+typedef struct _PdEngine PdEngine;
 
 struct _PdManager;
 typedef struct _PdManager PdManager;

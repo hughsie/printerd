@@ -41,6 +41,8 @@ libprinterddaemon_la_SOURCES =					\
 	pd-daemontypes.h					\
 	pd-daemon.h						\
 	pd-daemon.c						\
+	pd-engine.h						\
+	pd-engine.c						\
 	$(BUILT_SOURCES)
 
 libprinterddaemon_la_CFLAGS =					\
