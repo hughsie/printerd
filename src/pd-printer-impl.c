@@ -45,6 +45,7 @@ struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
 	gchar			*sysfs_path;
+	gchar			*id;
 };
 
 struct _PdPrinterImplClass
@@ -70,6 +71,7 @@ pd_printer_impl_finalize (GObject *object)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
 	g_free (printer->sysfs_path);
+	g_free (printer->id);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -131,7 +133,7 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 	/**
 	 * PdPrinterImpl:sysfs_path:
 	 *
-	 * The #PdSerial for the object.
+	 * The sysfs path for the object.
 	 */
 	g_object_class_install_property (gobject_class,
 					 PROP_SYSFS_PATH,
@@ -140,6 +142,40 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							      "The sysfs path for the object",
 							      NULL,
 							      G_PARAM_READWRITE));
+}
+
+const gchar *
+pd_printer_impl_get_id (PdPrinterImpl *printer)
+{
+	const gchar *tmp;
+	GString *id;
+
+	/* shortcut */
+	if (printer->id != NULL)
+		goto out;
+
+	/* make a unique ID for this device */
+	id = g_string_new ("");
+	tmp = pd_printer_get_vendor (PD_PRINTER (printer));
+	if (tmp != NULL)
+		g_string_append_printf (id, "%s_", tmp);
+	tmp = pd_printer_get_model (PD_PRINTER (printer));
+	if (tmp != NULL)
+		g_string_append_printf (id, "%s_", tmp);
+	tmp = pd_printer_get_serial (PD_PRINTER (printer));
+	if (tmp != NULL)
+		g_string_append_printf (id, "%s_", tmp);
+	g_string_set_size (id, id->len - 1);
+	printer->id = g_string_free (id, FALSE);
+
+	/* ensure valid */
+	g_strcanon (printer->id,
+		    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		    "abcdefghijklmnopqrstuvwxyz"
+		    "1234567890_",
+		    '_');
+out:
+	return printer->id;
 }
 
 /* ------------------------------------------------------------------ */

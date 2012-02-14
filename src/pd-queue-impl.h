@@ -18,29 +18,19 @@
  *
  */
 
-#ifndef __PD_DAEMON_TYPES_H__
-#define __PD_DAEMON_TYPES_H__
+#ifndef __PD_QUEUE_IMPL_H__
+#define __PD_QUEUE_IMPL_H__
 
-#include <gio/gio.h>
-#include <polkit/polkit.h>
-#include <printerd/printerd.h>
-#include <gudev/gudev.h>
+#include "pd-daemontypes.h"
 
-#include <sys/types.h>
+G_BEGIN_DECLS
 
-struct _PdDaemon;
-typedef struct _PdDaemon PdDaemon;
+#define PD_TYPE_QUEUE_IMPL	(pd_queue_impl_get_type ())
+#define PD_QUEUE_IMPL(o)	(G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_QUEUE_IMPL, PdQueueImpl))
+#define PD_IS_QUEUE_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_QUEUE_IMPL))
 
-struct _PdEngine;
-typedef struct _PdEngine PdEngine;
+GType		 pd_queue_impl_get_type	(void) G_GNUC_CONST;
 
-struct _PdManagerImpl;
-typedef struct _PdManagerImpl PdManagerImpl;
+G_END_DECLS
 
-struct _PdPrinterImpl;
-typedef struct _PdPrinterImpl PdPrinterImpl;
-
-struct _PdQueueImpl;
-typedef struct _PdQueueImpl PdQueueImpl;
-
-#endif /* __PD_DAEMON_TYPES_H__ */
+#endif /* __PD_QUEUE_IMPL_H__ */

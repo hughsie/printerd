@@ -75,6 +75,54 @@
     </method>
   </interface>
 
+  <!--
+      org.freedesktop.printerd.Queue:
+      @short_description: Queue
+
+      This interface is used to represent queues of printers.
+  -->
+  <interface name="org.freedesktop.printerd.Queue">
+    <!-- Printer: The printer used for this queue -->
+    <property name="Printer" type="o" access="read"/>
+    <!-- Description: The queue description -->
+    <property name="Description" type="s" access="read"/>
+    <!-- Location: The queue location -->
+    <property name="Location" type="s" access="read"/>
+    <!-- Driver: The queue driver -->
+    <property name="Driver" type="s" access="read"/>
+    <!-- Connection: The connection used for this queue -->
+    <property name="Connection" type="s" access="read"/>
+    <!-- Defaults: The default options for this queue, e.g. media-size, output-mode -->
+    <property name="Defaults" type="a{ss}" access="read"/>
+    <!-- Status: The queue status, e.g. busy, paused, idle -->
+    <property name="Status" type="s" access="read"/>
+    <!-- IsShared: If the queue is shared -->
+    <property name="IsShared" type="b" access="read"/>
+    <!-- IsDefault: If the queue is the server default -->
+    <property name="IsDefault" type="b" access="read"/>
+    <!-- ActiveJobs: The active jobs on this printer -->
+    <property name="ActiveJobs" type="a{sv}" access="read"/>
+
+    <!--
+        TestPrint:
+        @options: Options (currently unused except for <link linkend="printerd-std-options">standard options</link>).
+
+        Prints a test page on the specified device.
+    -->
+    <method name="TestPrint">
+      <arg name="options" direction="in" type="a{sv}"/>
+    </method>
+    <!--
+        GetJobs:
+        @attributes: Attributes for this job, e.g. "user", "size".
+
+        Gets any historical jobs for this queue.
+    -->
+    <method name="GetJobs">
+      <arg name="attributes" direction="out" type="a(a{sv})"/>
+    </method>
+  </interface>
+
   <!-- ********************************************************************** -->
 
 </node>

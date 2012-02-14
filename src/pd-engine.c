@@ -27,6 +27,7 @@
 #include "pd-engine.h"
 #include "pd-manager-impl.h"
 #include "pd-printer-impl.h"
+#include "pd-queue-impl.h"
 
 /**
  * SECTION:printerdengine
@@ -114,40 +115,77 @@ pd_engine_printer_remove (PdEngine *engine,
 	g_debug ("remove printer");
 }
 
-/**
- * pd_ensure_dbus_path:
- **/
-static gchar *
-pd_ensure_dbus_path (gchar *object_path)
+static void
+pd_engine_printer_setup_queue (PdEngine *engine,
+			       PdPrinter *printer,
+			       const gchar *object_path_printer)
 {
-	gchar *object_path_tmp;
-	object_path_tmp = g_strdup (object_path);
-	g_strcanon (object_path_tmp,
-		    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		    "abcdefghijklmnopqrstuvwxyz"
-		    "1234567890_/",
-		    '_');
-	return object_path_tmp;
+	const gchar *id;
+	gchar *description = NULL;
+	gchar *object_path = NULL;
+	GVariantBuilder builder;
+	GVariant *defaults;
+	PdDaemon *daemon;
+	PdObjectSkeleton *queue_object;
+	PdQueue *queue = NULL;
+
+	description = g_strdup_printf ("%s %s",
+				       pd_printer_get_vendor (printer),
+				       pd_printer_get_model (printer));
+
+	/* setup some initial defaults */
+	g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+	g_variant_builder_add (&builder,
+			       "{ss}",
+			       "media-size",
+			       "a4");
+	g_variant_builder_add (&builder,
+			       "{ss}",
+			       "output-mode",
+			       "color");
+	defaults = g_variant_new ("a{ss}", &builder);
+	queue = PD_QUEUE (g_object_new (PD_TYPE_QUEUE_IMPL,
+					"printer", object_path_printer,
+					"description", description,
+					"location", "localhost", //FIXME
+					"driver", "hplip", //FIXME
+					"connection", "hp:/misc",
+					"defaults", defaults,
+					"status", "idle",
+					"is-shared", FALSE,
+					"is-default", TRUE,
+					"active-jobs", NULL,
+					NULL));
+	id = pd_printer_impl_get_id (PD_PRINTER_IMPL (printer));
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/queue/%s", id);
+	queue_object = pd_object_skeleton_new (object_path);
+	pd_object_skeleton_set_queue (queue_object, queue);
+	daemon = pd_engine_get_daemon (engine);
+	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
+					     G_DBUS_OBJECT_SKELETON (queue_object));
+
+	g_free (description);
 }
 
 static PdPrinter *
 pd_engine_printer_add (PdEngine *engine,
 		       GUdevDevice *device)
 {
+	const gchar *id;
 	const gchar *id_model;
 	const gchar *id_vendor;
 	const gchar *ieee1284_id;
 	const gchar *serial;
-	gchar *object_path_tmp = NULL;
-	GString *object_path = NULL;
+	gchar *object_path = NULL;
 	GUdevDevice *parent = NULL;
 	PdDaemon *daemon;
+	PdObjectSkeleton *printer_object;
 	PdPrinter *printer = NULL;
 
 	/* get the IEEE1284 ID from the interface device */
 	ieee1284_id = g_udev_device_get_sysfs_attr (device, "ieee1284_id");
 	if (ieee1284_id == NULL) {
-		g_warning ("failed to get IEEE1284 from %s",
+		g_warning ("failed to get IEEE1284 from %s (perhaps no usblp?)",
 			   g_udev_device_get_sysfs_path (device));
 		goto out;
 	}
@@ -157,39 +195,29 @@ pd_engine_printer_add (PdEngine *engine,
 	id_vendor = g_udev_device_get_property (parent, "ID_VENDOR");
 	id_model = g_udev_device_get_property (parent, "ID_MODEL");
 	serial = g_udev_device_get_property (parent, "ID_SERIAL_SHORT");
-
 	printer = PD_PRINTER (g_object_new (PD_TYPE_PRINTER_IMPL,
 					    "serial", serial,
 					    "model", id_model,
 					    "vendor", id_vendor,
-					    "ieee1284id", ieee1284_id,
+					    "ieee1284-id", ieee1284_id,
 					    "sysfs-path", g_udev_device_get_sysfs_path (device),
 					    NULL));
-
 	g_debug ("add printer %s:%s:%s [%s]",
 		 id_vendor, id_model, serial, ieee1284_id);
 
-	/* devise object path */
-	object_path = g_string_new ("/org/freedesktop/printerd/printer/");
-	if (id_vendor != NULL)
-		g_string_append_printf (object_path, "%s_", id_vendor);
-	if (id_model != NULL)
-		g_string_append_printf (object_path, "%s_", id_model);
-	if (serial != NULL)
-		g_string_append_printf (object_path, "%s_", serial);
-	g_string_set_size (object_path, object_path->len - 1);
-	object_path_tmp = pd_ensure_dbus_path (object_path->str);
-
 	/* export on bus */
-	engine->priv->manager_object = pd_object_skeleton_new (object_path_tmp);
-	daemon = pd_engine_get_daemon (PD_ENGINE (engine));
-	pd_object_skeleton_set_printer (engine->priv->manager_object, printer);
+	id = pd_printer_impl_get_id (PD_PRINTER_IMPL (printer));
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s", id);
+	printer_object = pd_object_skeleton_new (object_path);
+	daemon = pd_engine_get_daemon (engine);
+	pd_object_skeleton_set_printer (printer_object, printer);
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
-					     G_DBUS_OBJECT_SKELETON (engine->priv->manager_object));
+					     G_DBUS_OBJECT_SKELETON (printer_object));
+
+	/* setup default queue only */
+	pd_engine_printer_setup_queue (engine, printer, object_path);
 out:
-	g_free (object_path_tmp);
-	if (object_path != NULL)
-		g_string_free (object_path, TRUE);
+	g_free (object_path);
 	if (parent != NULL)
 		g_object_unref (parent);
 	return printer;
