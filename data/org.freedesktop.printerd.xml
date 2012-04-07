@@ -34,17 +34,68 @@
   <interface name="org.freedesktop.printerd.Manager">
     <!-- Version: The version of the daemon currently running  -->
     <property name="Version" type="s" access="read"/>
+    <!-- IsScanningDevices: If device scanning is enabled -->
+    <property name="IsScanningDevices" type="b" access="readwrite"/>
 
     <!--
-        AddPrinter:
-        @options: Options - known options (in addition to <link linkend="printerd-std-options">standard options</link>) includes <parameter>offset</parameter> (of type 't'), <parameter>size</parameter> (of type 't') and <parameter>read-only</parameter> (of type 'b').
-        @resulting_device: An object path to the object implementing the #org.freedesktop.printerd.Block interface.
+        GetDevices:
+	@devices: List of object paths implementing the #org.freedesktop.printerd.Device interface.
 
-        Creates a block device for the file represented by @fd.
+	Get the list of devices.  If the #IsScanningDevices property
+	is False the list may be empty even if devices are available.
     -->
-    <method name="AddPrinter">
+    <method name="GetDevices">
+      <arg name="devices" direction="out" type="ao"/>
+    </method>
+
+    <!--
+        GetPrinters:
+	@printers: List of object paths implementing the #org.freedesktop.printerd.Printer interface.
+
+	Get the list of printers.
+    -->
+    <method name="GetPrinters">
+      <arg name="printers" direction="out" type="ao"/>
+    </method>
+
+    <!--
+        GetDrivers
+	@options: Options (currently unused).
+	@drivers: List of driver attribute sets.
+
+	Get the list of available drivers.
+    -->
+    <method name="GetDrivers">
       <arg name="options" direction="in" type="a{sv}"/>
-      <arg name="resulting_device" direction="out" type="o"/>
+      <arg name="drivers" direction="out" type="a(a{sv})"/>
+    </method>
+
+    <!--
+        CreatePrinter:
+        @options: Options (currently unused).
+	@name: Name for the printer.
+	@device_uris: Device URIs to send jobs to.
+	@defaults: Job template attributes e.g. media, print-quality.
+        @resulting_printer: An object path to the object implementing the #org.freedesktop.printerd.Printer interface.
+
+        Creates a printer.
+    -->
+    <method name="CreatePrinter">
+      <arg name="options" direction="in" type="a{sv}"/>
+      <arg name="name" direction="in" type="s"/>
+      <arg name="device_uris" direction="in" type="as"/>
+      <arg name="defaults" direction="in" type="a{sv}"/>
+      <arg name="resulting_printer" direction="out" type="o"/>
+    </method>
+
+    <!--
+        DeletePrinter:
+        @options: Options (currently unused).
+
+        Deletes a printer object.
+    -->
+    <method name="DeletePrinter">
+      <arg name="options" direction="in" type="a{sv}"/>
     </method>
   </interface>
 
@@ -52,74 +103,193 @@
       org.freedesktop.printerd.Printer:
       @short_description: Printer
 
-      This interface is used to represent printers known by printerd.
+      This interface is used to represent a printer queue.
   -->
   <interface name="org.freedesktop.printerd.Printer">
-    <!-- Vendor: A name for the vendor of the printer or blank if unknown. -->
-    <property name="Vendor" type="s" access="read"/>
-    <!-- Model: A name for the model of the printer or blank if unknown. -->
-    <property name="Model" type="s" access="read"/>
-    <!-- Revision: IEEE1284 ID or blank if unknown. -->
-    <property name="Ieee1284Id" type="s" access="read"/>
-    <!-- Serial: Serial number of the printer or blank if unknown. -->
-    <property name="Serial" type="s" access="read"/>
-
-    <!--
-        TestPrint:
-        @options: Options (currently unused except for <link linkend="printerd-std-options">standard options</link>).
-
-        Prints a test page on the specified device.
-    -->
-    <method name="TestPrint">
-      <arg name="options" direction="in" type="a{sv}"/>
-    </method>
-  </interface>
-
-  <!--
-      org.freedesktop.printerd.Queue:
-      @short_description: Queue
-
-      This interface is used to represent queues of printers.
-  -->
-  <interface name="org.freedesktop.printerd.Queue">
-    <!-- Printer: The printer used for this queue -->
-    <property name="Printer" type="o" access="read"/>
+    <!-- DeviceUris: The device URIs used for this queue -->
+    <property name="DeviceUris" type="as" access="readwrite"/>
+    <!-- Defaults: The job template attributes for this queue,
+         e.g. media, print-quality -->
+    <property name="Defaults" type="a{sv}" access="readwrite"/>
+    <!-- Supported: Supported values for job template attributes for
+         this queue, e.g. media, print-quality. This follows the IPP
+         model: generally they are lists but there are special cases,
+         e.g. "copies" supported value is the maximum number of
+         copies. -->
+    <property name="Supported" type="a{sv}" access="read"/>
+    <!-- IsAcceptingJobs: If jobs are accepted -->
+    <property name="IsAcceptingJobs" type="b" access="readwrite"/>
+    <!-- State: The queue state, e.g. busy, paused, idle -->
+    <property name="State" type="s" access="read"/>
+    <!-- StateReasons: Keywords describing reason for state. -->
+    <property name="StateReasons" type="as" access="read"/>
+    <!-- Name: The name of this queue -->
+    <property name="Name" type="s" access="readwrite"/>
     <!-- Description: The queue description -->
-    <property name="Description" type="s" access="read"/>
+    <property name="Description" type="s" access="readwrite"/>
     <!-- Location: The queue location -->
-    <property name="Location" type="s" access="read"/>
+    <property name="Location" type="s" access="readwrite"/>
     <!-- Driver: The queue driver -->
     <property name="Driver" type="s" access="read"/>
-    <!-- Connection: The connection used for this queue -->
-    <property name="Connection" type="s" access="read"/>
-    <!-- Defaults: The default options for this queue, e.g. media-size, output-mode -->
-    <property name="Defaults" type="a{ss}" access="read"/>
-    <!-- Status: The queue status, e.g. busy, paused, idle -->
-    <property name="Status" type="s" access="read"/>
+    <!-- Ieee1284Id: IEEE1284 Device ID or blank if unknown. -->
+    <property name="Ieee1284Id" type="s" access="read"/>
     <!-- IsShared: If the queue is shared -->
     <property name="IsShared" type="b" access="read"/>
     <!-- IsDefault: If the queue is the server default -->
     <property name="IsDefault" type="b" access="read"/>
-    <!-- ActiveJobs: The active jobs on this printer -->
-    <property name="ActiveJobs" type="a{sv}" access="read"/>
+    <!-- ActiveJobs: The jobs on this printer that are not completed -->
+    <property name="ActiveJobs" type="ao" access="read"/>
 
     <!--
-        TestPrint:
-        @options: Options (currently unused except for <link linkend="printerd-std-options">standard options</link>).
+        UpdateDriver:
+	@options: Options (currently unused).
 
-        Prints a test page on the specified device.
+	Updates the queue so that it uses the best available driver.
     -->
-    <method name="TestPrint">
+    <method name="UpdateDriver">
       <arg name="options" direction="in" type="a{sv}"/>
     </method>
+
     <!--
         GetJobs:
-        @attributes: Attributes for this job, e.g. "user", "size".
+        @options: Options (currently unused).
+        @attributes: Attributes for this job, e.g. "job-id", "job-k-octets".
 
         Gets any historical jobs for this queue.
     -->
     <method name="GetJobs">
+      <arg name="options" direction="in" type="a{sv}"/>
       <arg name="attributes" direction="out" type="a(a{sv})"/>
+    </method>
+
+    <!--
+        CreateJob:
+        @options: Options (currently unused except for <link linkend="printerd-std-options">standard options</link>).
+	@name: Name for the job.
+	@attributes: Job attributes e.g. "media", "print-quality".
+	@resulting_job: An object path to the object implementing the #org.freedesktop.printerd.Job interface.
+
+        Creates a new job for the queue.
+    -->
+    <method name="CreateJob">
+      <arg name="options" direction="in" type="a{sv}"/>
+      <arg name="name" direction="in" type="s"/>
+      <arg name="attributes" direction="in" type="a{sv}"/>
+      <arg name="resulting_job" direction="out" type="o"/>
+    </method>
+  </interface>
+
+  <!--
+      org.freedesktop.printerd.Job:
+      @short_description: Job
+
+      This interface is used to represent print jobs.
+  -->
+  <interface name="org.freedesktop.printerd.Job">
+    <!-- Printer: Which printer the job belongs to -->
+    <property name="Printer" type="o" access="read"/>
+    <!-- DeviceUri: Device URI used -->
+    <property name="DeviceUri" type="s" access="read"/>
+    <!-- State: Job state (e.g. pending, processing, etc) -->
+    <property name="State" type="s" access="read"/>
+    <!-- StateReasons: Keywords describing reason for state -->
+    <property name="StateReasons" type="as" access="read"/>
+    <!-- Id: Job ID -->
+    <property name="Id" type="u" access="read"/>
+    <!-- Name: Job name -->
+    <property name="Name" type="s" access="read"/>
+    <!-- Attributes: Job attributes -->
+    <property name="Attributes" type="a{ss}" access="read"/>
+
+    <!--
+        AddDocument:
+	@options: Options (currently unused except for <link linkend="printerd-std-options">standard options</link>).
+	@file_descriptor: File descriptor for document.
+
+	Add a document to the job. The document is not read until the
+	job is available for processing.
+    -->
+    <method name="AddDocument">
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="file_descriptor" type="h" direction="in"/>
+    </method>
+
+    <!--
+        Start:
+
+	Make the job available for processing. This causes the job
+	document to be read.
+    -->
+    <method name="Start"/>
+
+    <!--
+        Validate:
+	@options: Options (currently unused).
+	@authinfo: Authentication information in auth-info-required order.
+
+	Provide authentication information for a job in order to allow
+	it to continue.
+    -->
+    <method name="Validate">
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="authinfo" type="as" direction="in"/>
+    </method>
+
+    <!--
+        Cancel:
+	@options: Options (currently unused).
+
+	Cancel the job.
+    -->
+    <method name="Cancel">
+      <arg name="options" type="a{sv}" direction="in"/>
+    </method>
+
+    <!--
+        Reprocess:
+	@options: Options (currently unused).
+	@resulting_job: An object path to the object implementing the #org.freedesktop.printerd.Job interface.
+
+	Reprocess the job i.e. create a new job from the same document
+	and job template attributes and start it.
+    -->
+    <method name="Reprocess">
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="resulting_job" type="o" direction="out"/>
+    </method>
+  </interface>
+
+  <!--
+      org.freedesktop.printerd.Device:
+      @short_description: Device
+
+      This interface is used to represent devices known by printerd.
+  -->
+  <interface name="org.freedesktop.printerd.Device">
+    <!-- Uri: Primary device URI for accessing this device. -->
+    <property name="Uri" type="s" access="read"/>
+    <!-- AlternativeUris: Alternative device URIs for this device. -->
+    <property name="AlternativeUris" type="as" access="read"/>
+    <!-- Ieee1284Id: IEEE1284 Device ID or blank if unknown. -->
+    <property name="Ieee1284Id" type="s" access="read"/>
+    <!-- Description: Description of this device. -->
+    <property name="Description" type="s" access="read"/>
+
+    <!--
+        CreatePrinter:
+        @options: Options (currently unused).
+	@name: Name for the printer.
+	@defaults: Job template attributes e.g. media, print-quality.
+	@resulting_printer: An object path to the object implementing the #org.freedesktop.printerd.Printer interface.
+
+        Creates a printer queue for this device.
+    -->
+    <method name="CreatePrinter">
+      <arg name="options" direction="in" type="a{sv}"/>
+      <arg name="name" direction="in" type="s"/>
+      <arg name="device_uris" direction="in" type="as"/>
+      <arg name="defaults" direction="in" type="a{sv}"/>
+      <arg name="resulting_printer" direction="out" type="o"/>
     </method>
   </interface>
 
