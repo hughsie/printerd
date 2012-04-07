@@ -221,5 +221,5 @@ out:
 static void
 pd_manager_iface_init (PdManagerIface *iface)
 {
-	iface->handle_add_printer = pd_manager_impl_add_printer;
+	//iface->handle_add_printer = pd_manager_impl_add_printer;
 }

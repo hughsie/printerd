@@ -45,7 +45,6 @@ struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
 	gchar			*sysfs_path;
-	gchar			*id;
 };
 
 struct _PdPrinterImplClass
@@ -71,15 +70,14 @@ pd_printer_impl_finalize (GObject *object)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
 	g_free (printer->sysfs_path);
-	g_free (printer->id);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
 static void
 pd_printer_impl_get_property (GObject *object,
-			 guint prop_id,
-			 GValue *value,
-			 GParamSpec *pspec)
+			      guint prop_id,
+			      GValue *value,
+			      GParamSpec *pspec)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
 
@@ -95,9 +93,9 @@ pd_printer_impl_get_property (GObject *object,
 
 static void
 pd_printer_impl_set_property (GObject *object,
-			 guint prop_id,
-			 const GValue *value,
-			 GParamSpec *pspec)
+			      guint prop_id,
+			      const GValue *value,
+			      GParamSpec *pspec)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
 
@@ -133,7 +131,7 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 	/**
 	 * PdPrinterImpl:sysfs_path:
 	 *
-	 * The sysfs path for the object.
+	 * The #PdSerial for the object.
 	 */
 	g_object_class_install_property (gobject_class,
 					 PROP_SYSFS_PATH,
@@ -142,40 +140,6 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							      "The sysfs path for the object",
 							      NULL,
 							      G_PARAM_READWRITE));
-}
-
-const gchar *
-pd_printer_impl_get_id (PdPrinterImpl *printer)
-{
-	const gchar *tmp;
-	GString *id;
-
-	/* shortcut */
-	if (printer->id != NULL)
-		goto out;
-
-	/* make a unique ID for this device */
-	id = g_string_new ("");
-	tmp = pd_printer_get_vendor (PD_PRINTER (printer));
-	if (tmp != NULL)
-		g_string_append_printf (id, "%s_", tmp);
-	tmp = pd_printer_get_model (PD_PRINTER (printer));
-	if (tmp != NULL)
-		g_string_append_printf (id, "%s_", tmp);
-	tmp = pd_printer_get_serial (PD_PRINTER (printer));
-	if (tmp != NULL)
-		g_string_append_printf (id, "%s_", tmp);
-	g_string_set_size (id, id->len - 1);
-	printer->id = g_string_free (id, FALSE);
-
-	/* ensure valid */
-	g_strcanon (printer->id,
-		    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-		    "abcdefghijklmnopqrstuvwxyz"
-		    "1234567890_",
-		    '_');
-out:
-	return printer->id;
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,5 +160,5 @@ pd_printer_impl_test_print (PdPrinter *_printer,
 static void
 pd_printer_iface_init (PdPrinterIface *iface)
 {
-	iface->handle_test_print = pd_printer_impl_test_print;
+	//iface->handle_test_print = pd_printer_impl_test_print;
 }

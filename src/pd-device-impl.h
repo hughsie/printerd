@@ -18,19 +18,20 @@
  *
  */
 
-#ifndef __PD_QUEUE_IMPL_H__
-#define __PD_QUEUE_IMPL_H__
+#ifndef __PD_DEVICE_IMPL_H__
+#define __PD_DEVICE_IMPL_H__
 
 #include "pd-daemontypes.h"
 
 G_BEGIN_DECLS
 
-#define PD_TYPE_QUEUE_IMPL	(pd_queue_impl_get_type ())
-#define PD_QUEUE_IMPL(o)	(G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_QUEUE_IMPL, PdQueueImpl))
-#define PD_IS_QUEUE_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_QUEUE_IMPL))
+#define PD_TYPE_DEVICE_IMPL	(pd_device_impl_get_type ())
+#define PD_DEVICE_IMPL(o)	(G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_DEVICE_IMPL, PdDeviceImpl))
+#define PD_IS_DEVICE_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_DEVICE_IMPL))
 
-GType		 pd_queue_impl_get_type	(void) G_GNUC_CONST;
+GType		 pd_device_impl_get_type	(void) G_GNUC_CONST;
+const gchar	*pd_device_impl_get_id		(PdDeviceImpl	*device);
 
 G_END_DECLS
 
-#endif /* __PD_QUEUE_IMPL_H__ */
+#endif /* __PD_DEVICE_IMPL_H__ */

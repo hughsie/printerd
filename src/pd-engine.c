@@ -26,8 +26,8 @@
 #include "pd-daemon.h"
 #include "pd-engine.h"
 #include "pd-manager-impl.h"
+#include "pd-device-impl.h"
 #include "pd-printer-impl.h"
-#include "pd-queue-impl.h"
 
 /**
  * SECTION:printerdengine
@@ -39,12 +39,10 @@
 
 struct _PdEnginePrivate
 {
-	gboolean	 coldplug;
-	GFileMonitor	*monitor;
-	GUdevClient	*gudev_client;
 	PdDaemon	*daemon;
 	PdObjectSkeleton *manager_object;
-	GHashTable	*path_to_printer;
+	GUdevClient	*gudev_client;
+	GHashTable	*path_to_device;
 };
 
 enum
@@ -61,8 +59,7 @@ pd_engine_finalize (GObject *object)
 	PdEngine *engine = PD_ENGINE (object);
 
 	/* note: we don't hold a ref to engine->priv->daemon */
-	g_object_unref (engine->priv->gudev_client);
-	g_hash_table_unref (engine->priv->path_to_printer);
+	g_hash_table_unref (engine->priv->path_to_device);
 
 	if (G_OBJECT_CLASS (pd_engine_parent_class)->finalize != NULL)
 		G_OBJECT_CLASS (pd_engine_parent_class)->finalize (object);
@@ -109,67 +106,15 @@ pd_engine_set_property (GObject *object,
 }
 
 static void
-pd_engine_printer_remove (PdEngine *engine,
-			  PdPrinter *printer)
+pd_engine_device_remove (PdEngine *engine,
+			 PdDevice *device)
 {
-	g_debug ("remove printer");
+	g_debug ("remove device");
 }
 
-static void
-pd_engine_printer_setup_queue (PdEngine *engine,
-			       PdPrinter *printer,
-			       const gchar *object_path_printer)
-{
-	const gchar *id;
-	gchar *description = NULL;
-	gchar *object_path = NULL;
-	GVariantBuilder builder;
-	GVariant *defaults;
-	PdDaemon *daemon;
-	PdObjectSkeleton *queue_object;
-	PdQueue *queue = NULL;
-
-	description = g_strdup_printf ("%s %s",
-				       pd_printer_get_vendor (printer),
-				       pd_printer_get_model (printer));
-
-	/* setup some initial defaults */
-	g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
-	g_variant_builder_add (&builder,
-			       "{ss}",
-			       "media-size",
-			       "a4");
-	g_variant_builder_add (&builder,
-			       "{ss}",
-			       "output-mode",
-			       "color");
-	defaults = g_variant_new ("a{ss}", &builder);
-	queue = PD_QUEUE (g_object_new (PD_TYPE_QUEUE_IMPL,
-					"printer", object_path_printer,
-					"description", description,
-					"location", "localhost", //FIXME
-					"driver", "hplip", //FIXME
-					"connection", "hp:/misc",
-					"defaults", defaults,
-					"status", "idle",
-					"is-shared", FALSE,
-					"is-default", TRUE,
-					"active-jobs", NULL,
-					NULL));
-	id = pd_printer_impl_get_id (PD_PRINTER_IMPL (printer));
-	object_path = g_strdup_printf ("/org/freedesktop/printerd/queue/%s", id);
-	queue_object = pd_object_skeleton_new (object_path);
-	pd_object_skeleton_set_queue (queue_object, queue);
-	daemon = pd_engine_get_daemon (engine);
-	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
-					     G_DBUS_OBJECT_SKELETON (queue_object));
-
-	g_free (description);
-}
-
-static PdPrinter *
-pd_engine_printer_add (PdEngine *engine,
-		       GUdevDevice *device)
+static PdDevice *
+pd_engine_device_add (PdEngine *engine,
+		      GUdevDevice *udevdevice)
 {
 	const gchar *id;
 	const gchar *id_model;
@@ -179,85 +124,83 @@ pd_engine_printer_add (PdEngine *engine,
 	gchar *object_path = NULL;
 	GUdevDevice *parent = NULL;
 	PdDaemon *daemon;
-	PdObjectSkeleton *printer_object;
-	PdPrinter *printer = NULL;
+	PdObjectSkeleton *device_object;
+	PdDevice *device = NULL;
 
 	/* get the IEEE1284 ID from the interface device */
-	ieee1284_id = g_udev_device_get_sysfs_attr (device, "ieee1284_id");
+	ieee1284_id = g_udev_device_get_sysfs_attr (udevdevice, "ieee1284_id");
 	if (ieee1284_id == NULL) {
 		g_warning ("failed to get IEEE1284 from %s (perhaps no usblp?)",
-			   g_udev_device_get_sysfs_path (device));
+			   g_udev_device_get_sysfs_path (udevdevice));
 		goto out;
 	}
 
 	/* get the device properties from the parent device */
-	parent = g_udev_device_get_parent (device);
+	parent = g_udev_device_get_parent (udevdevice);
 	id_vendor = g_udev_device_get_property (parent, "ID_VENDOR");
 	id_model = g_udev_device_get_property (parent, "ID_MODEL");
 	serial = g_udev_device_get_property (parent, "ID_SERIAL_SHORT");
-	printer = PD_PRINTER (g_object_new (PD_TYPE_PRINTER_IMPL,
-					    "serial", serial,
-					    "model", id_model,
-					    "vendor", id_vendor,
-					    "ieee1284-id", ieee1284_id,
-					    "sysfs-path", g_udev_device_get_sysfs_path (device),
-					    NULL));
-	g_debug ("add printer %s:%s:%s [%s]",
+	device = PD_DEVICE (g_object_new (PD_TYPE_DEVICE_IMPL,
+					  //"serial", serial,
+					  //"model", id_model,
+					  //"vendor", id_vendor,
+					  "ieee1284-id", ieee1284_id,
+					  //"sysfs-path", g_udev_device_get_sysfs_path (udevdevice),
+					  NULL));
+	g_debug ("add device %s:%s:%s [%s]",
 		 id_vendor, id_model, serial, ieee1284_id);
 
 	/* export on bus */
-	id = pd_printer_impl_get_id (PD_PRINTER_IMPL (printer));
-	object_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s", id);
-	printer_object = pd_object_skeleton_new (object_path);
+	id = pd_device_impl_get_id (PD_DEVICE_IMPL (device));
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/device/%s", id);
+	device_object = pd_object_skeleton_new (object_path);
 	daemon = pd_engine_get_daemon (engine);
-	pd_object_skeleton_set_printer (printer_object, printer);
+	pd_object_skeleton_set_device (device_object, device);
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
-					     G_DBUS_OBJECT_SKELETON (printer_object));
+					     G_DBUS_OBJECT_SKELETON (device_object));
 
-	/* setup default queue only */
-	pd_engine_printer_setup_queue (engine, printer, object_path);
 out:
 	g_free (object_path);
 	if (parent != NULL)
 		g_object_unref (parent);
-	return printer;
+	return device;
 }
 
 static void
 pd_engine_handle_uevent (PdEngine *engine,
 			 const gchar *action,
-			 GUdevDevice *device)
+			 GUdevDevice *udevdevice)
 {
 	gint i_class;
 	gint i_subclass;
-	PdPrinter *printer;
+	PdDevice *device;
 
 	if (g_strcmp0 (action, "remove") == 0) {
 
 		/* look for existing device */
-		printer = g_hash_table_lookup (engine->priv->path_to_printer,
-					       g_udev_device_get_sysfs_path (device));
-		if (printer != NULL) {
-			pd_engine_printer_remove (engine, printer);
-			g_hash_table_remove (engine->priv->path_to_printer,
-					     g_udev_device_get_sysfs_path (device));
+		device = g_hash_table_lookup (engine->priv->path_to_device,
+					      g_udev_device_get_sysfs_path (udevdevice));
+		if (device != NULL) {
+			pd_engine_device_remove (engine, device);
+			g_hash_table_remove (engine->priv->path_to_device,
+					     g_udev_device_get_sysfs_path (udevdevice));
 		}
 		return;
 	}
 	if (g_strcmp0 (action, "add") == 0) {
 
 		/* not a printer */
-		i_class = g_udev_device_get_sysfs_attr_as_int (device, "bInterfaceClass");
-		i_subclass = g_udev_device_get_sysfs_attr_as_int (device, "bInterfaceSubClass");
+		i_class = g_udev_device_get_sysfs_attr_as_int (udevdevice, "bInterfaceClass");
+		i_subclass = g_udev_device_get_sysfs_attr_as_int (udevdevice, "bInterfaceSubClass");
 		if (i_class != 0x07 ||
 		    i_subclass != 0x01)
 			return;
 
 		/* add to hash and add to database */
-		printer = pd_engine_printer_add (engine, device);
-		g_hash_table_insert (engine->priv->path_to_printer,
-				     g_strdup (g_udev_device_get_sysfs_path (device)),
-				     (gpointer) printer);
+		device = pd_engine_device_add (engine, udevdevice);
+		g_hash_table_insert (engine->priv->path_to_device,
+				     g_strdup (g_udev_device_get_sysfs_path (udevdevice)),
+				     (gpointer) device);
 		return;
 	}
 }
@@ -265,11 +208,11 @@ pd_engine_handle_uevent (PdEngine *engine,
 static void
 on_uevent (GUdevClient *client,
 	   const gchar *action,
-	   GUdevDevice *device,
+	   GUdevDevice *udevdevice,
 	   gpointer user_data)
 {
 	PdEngine *engine = PD_ENGINE (user_data);
-	pd_engine_handle_uevent (engine, action, device);
+	pd_engine_handle_uevent (engine, action, udevdevice);
 }
 
 static void
@@ -332,21 +275,6 @@ pd_engine_get_daemon (PdEngine *engine)
 }
 
 /**
- * pd_engine_get_coldplug:
- * @engine: A #PdEngine.
- *
- * Gets whether @engine is in the coldplug phase.
- *
- * Returns: %TRUE if in the coldplug phase, %FALSE otherwise.
- **/
-gboolean
-pd_engine_get_coldplug (PdEngine *engine)
-{
-	g_return_val_if_fail (PD_IS_ENGINE (engine), FALSE);
-	return engine->priv->coldplug;
-}
-
-/**
  * pd_engine_start:
  * @engine: A #PdEngine.
  *
@@ -370,21 +298,18 @@ pd_engine_start	(PdEngine *engine)
 					     G_DBUS_OBJECT_SKELETON (engine->priv->manager_object));
 
 	/* keep a hash to detect removal */
-	engine->priv->path_to_printer = g_hash_table_new_full (g_str_hash,
-							       g_str_equal,
-							       g_free,
-							       g_object_unref);
+	engine->priv->path_to_device = g_hash_table_new_full (g_str_hash,
+							      g_str_equal,
+							      g_free,
+							      g_object_unref);
 
-	/* coldplug */
-	engine->priv->coldplug = TRUE;
-	devices = g_udev_client_query_by_subsystem (engine->priv->gudev_client, "usb");
+	/* start device scanning (for demo) */
+	devices = g_udev_client_query_by_subsystem (engine->priv->gudev_client,
+						    "usb");
 	for (l = devices; l != NULL; l = l->next)
 		pd_engine_handle_uevent (engine, "add", G_UDEV_DEVICE (l->data));
-	engine->priv->coldplug = FALSE;
 
 	g_object_unref (manager);
-	g_list_foreach (devices, (GFunc) g_object_unref, NULL);
-	g_list_free (devices);
 }
 
 /**

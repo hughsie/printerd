@@ -37,10 +37,10 @@ typedef struct _PdEngine PdEngine;
 struct _PdManagerImpl;
 typedef struct _PdManagerImpl PdManagerImpl;
 
+struct _PdDeviceImpl;
+typedef struct _PdDeviceImpl PdDeviceImpl;
+
 struct _PdPrinterImpl;
 typedef struct _PdPrinterImpl PdPrinterImpl;
-
-struct _PdQueueImpl;
-typedef struct _PdQueueImpl PdQueueImpl;
 
 #endif /* __PD_DAEMON_TYPES_H__ */
