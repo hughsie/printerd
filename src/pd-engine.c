@@ -23,6 +23,7 @@
 
 #include <gudev/gudev.h>
 
+#include "pd-common.h"
 #include "pd-daemon.h"
 #include "pd-engine.h"
 #include "pd-manager-impl.h"
@@ -117,15 +118,17 @@ pd_engine_device_add (PdEngine *engine,
 		      GUdevDevice *udevdevice)
 {
 	const gchar *id;
-	const gchar *id_model;
-	const gchar *id_vendor;
 	const gchar *ieee1284_id;
-	const gchar *serial;
+	GHashTable *ieee1284_id_fields = NULL;
 	gchar *object_path = NULL;
-	GUdevDevice *parent = NULL;
+	GString *uri = NULL;
+	GString *description = NULL;
 	PdDaemon *daemon;
 	PdObjectSkeleton *device_object;
 	PdDevice *device = NULL;
+	gchar *mfg;
+	gchar *mdl;
+	gchar *sn;
 
 	/* get the IEEE1284 ID from the interface device */
 	ieee1284_id = g_udev_device_get_sysfs_attr (udevdevice, "ieee1284_id");
@@ -135,20 +138,39 @@ pd_engine_device_add (PdEngine *engine,
 		goto out;
 	}
 
-	/* get the device properties from the parent device */
-	parent = g_udev_device_get_parent (udevdevice);
-	id_vendor = g_udev_device_get_property (parent, "ID_VENDOR");
-	id_model = g_udev_device_get_property (parent, "ID_MODEL");
-	serial = g_udev_device_get_property (parent, "ID_SERIAL_SHORT");
+	ieee1284_id_fields = pd_parse_ieee1284_id (ieee1284_id);
+	if (ieee1284_id_fields == NULL) {
+		g_warning ("failed to parse IEEE1284 Device ID");
+		goto out;
+	}
+
+	mfg = g_hash_table_lookup (ieee1284_id_fields, "mfg");
+	if (!g_ascii_strcasecmp (mfg, "hewlett-packard"))
+		mfg = "HP";
+	else if (!g_ascii_strcasecmp (mfg, "lexmark international"))
+		mfg = "Lexmark";
+
+	mdl = g_hash_table_lookup (ieee1284_id_fields, "mdl");
+	uri = g_string_new ("usb://");
+	g_string_append_uri_escaped (uri, mfg, NULL, TRUE);
+	g_string_append (uri, "/");
+	g_string_append_uri_escaped (uri, mdl, NULL, TRUE);
+
+	sn = g_hash_table_lookup (ieee1284_id_fields, "sn");
+	if (sn != NULL) {
+		g_string_append (uri, "?serial=");
+		g_string_append_uri_escaped (uri, sn, NULL, FALSE);
+	}
+
+	description = g_string_new ("");
+	g_string_printf (description, "%s %s (USB)", mfg, mdl);
+
 	device = PD_DEVICE (g_object_new (PD_TYPE_DEVICE_IMPL,
-					  //"serial", serial,
-					  //"model", id_model,
-					  //"vendor", id_vendor,
 					  "ieee1284-id", ieee1284_id,
-					  //"sysfs-path", g_udev_device_get_sysfs_path (udevdevice),
+					  "uri", uri->str,
+					  "description", description->str,
 					  NULL));
-	g_debug ("add device %s:%s:%s [%s]",
-		 id_vendor, id_model, serial, ieee1284_id);
+	g_debug ("add device %s [%s]", uri->str, ieee1284_id);
 
 	/* export on bus */
 	id = pd_device_impl_get_id (PD_DEVICE_IMPL (device));
@@ -160,9 +182,10 @@ pd_engine_device_add (PdEngine *engine,
 					     G_DBUS_OBJECT_SKELETON (device_object));
 
 out:
+	g_string_free (uri, TRUE);
+	g_string_free (description, TRUE);
+	g_hash_table_unref (ieee1284_id_fields);
 	g_free (object_path);
-	if (parent != NULL)
-		g_object_unref (parent);
 	return device;
 }
 

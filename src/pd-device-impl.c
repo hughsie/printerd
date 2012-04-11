@@ -22,6 +22,7 @@
 
 #include <glib.h>
 
+#include "pd-common.h"
 #include "pd-device-impl.h"
 
 /**
@@ -147,18 +148,38 @@ pd_device_impl_class_init (PdDeviceImplClass *klass)
 const gchar *
 pd_device_impl_get_id (PdDeviceImpl *device)
 {
-	const gchar *tmp;
+	GHashTable *ieee1284_id_fields = NULL;
+	const gchar *idstring;
 	GString *id;
+	gchar *mfg;
+	gchar *mdl;
+	gchar *sn;
 
 	/* shortcut */
 	if (device->id != NULL)
 		goto out;
 
 	/* make a unique ID for this device */
+	idstring = pd_device_get_ieee1284_id (PD_DEVICE (device));
+	ieee1284_id_fields = pd_parse_ieee1284_id (idstring);
+	if (ieee1284_id_fields == NULL)
+		goto out;
+
+	mfg = g_hash_table_lookup (ieee1284_id_fields, "mfg");
+	mdl = g_hash_table_lookup (ieee1284_id_fields, "mdl");
+	sn = g_hash_table_lookup (ieee1284_id_fields, "sn");
 	id = g_string_new ("");
-	tmp = pd_device_get_ieee1284_id (PD_DEVICE (device));
-	if (tmp != NULL)
-		g_string_append_printf (id, "%s", tmp);
+	if (mfg)
+		g_string_append_printf (id, "%s_", mfg);
+	if (mdl)
+		g_string_append_printf (id, "%s_", mdl);
+	if (sn)
+		g_string_append_printf (id, "%s_", sn);
+	if (id->len != 0)
+		g_string_set_size (id, id->len - 1);
+	else
+		g_string_append_printf (id, "unknown-device");
+
 	device->id = g_string_free (id, FALSE);
 
 	/* ensure valid */
@@ -168,6 +189,7 @@ pd_device_impl_get_id (PdDeviceImpl *device)
 		    "1234567890_",
 		    '_');
 out:
+	g_hash_table_unref (ieee1284_id_fields);
 	return device->id;
 }
 

@@ -38,6 +38,8 @@ INCLUDES = \
 noinst_LTLIBRARIES = libprinterddaemon.la
 
 libprinterddaemon_la_SOURCES =					\
+	pd-common.h						\
+	pd-common.c						\
 	pd-daemontypes.h					\
 	pd-daemon.h						\
 	pd-daemon.c						\
