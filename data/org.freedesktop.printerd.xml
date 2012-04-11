@@ -199,7 +199,7 @@
     <!-- Name: Job name -->
     <property name="Name" type="s" access="read"/>
     <!-- Attributes: Job attributes -->
-    <property name="Attributes" type="a{ss}" access="read"/>
+    <property name="Attributes" type="a{sv}" access="read"/>
 
     <!--
         AddDocument:
