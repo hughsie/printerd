@@ -68,7 +68,10 @@ PdEngine	*pd_engine_new			(PdDaemon	*daemon);
 PdDaemon	*pd_engine_get_daemon		(PdEngine	*engine);
 GUdevClient	*pd_engine_get_udev_client	(PdEngine	*engine);
 void		 pd_engine_start		(PdEngine	*engine);
-gboolean	 pd_engine_get_coldplug		(PdEngine	*engine);
+gchar		*pd_engine_add_printer		(PdEngine	*engine,
+						 const gchar	*name,
+						 const gchar	*description,
+						 const gchar	*location);
 
 G_END_DECLS
 

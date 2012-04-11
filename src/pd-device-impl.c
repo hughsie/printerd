@@ -24,6 +24,7 @@
 
 #include "pd-common.h"
 #include "pd-device-impl.h"
+#include "pd-engine.h"
 
 /**
  * SECTION:pddevice
@@ -45,6 +46,7 @@ typedef struct _PdDeviceImplClass	PdDeviceImplClass;
 struct _PdDeviceImpl
 {
 	PdDeviceSkeleton	 parent_instance;
+	PdEngine		*engine;
 	gchar			*sysfs_path;
 	gchar			*id;
 };
@@ -71,6 +73,7 @@ static void
 pd_device_impl_finalize (GObject *object)
 {
 	PdDeviceImpl *device = PD_DEVICE_IMPL (object);
+	/* note: we don't hold a reference to device->engine */
 	g_free (device->sysfs_path);
 	g_free (device->id);
 	G_OBJECT_CLASS (pd_device_impl_parent_class)->finalize (object);
@@ -145,6 +148,13 @@ pd_device_impl_class_init (PdDeviceImplClass *klass)
 							      G_PARAM_READWRITE));
 }
 
+void
+pd_device_impl_set_engine (PdDeviceImpl *device,
+			   PdEngine *engine)
+{
+	device->engine = engine;
+}
+
 const gchar *
 pd_device_impl_get_id (PdDeviceImpl *device)
 {
@@ -195,21 +205,52 @@ out:
 
 /* ------------------------------------------------------------------ */
 
+static void
+pd_device_impl_complete_create_printer (PdDevice *_device,
+					GDBusMethodInvocation *invocation,
+					GVariant *options,
+					const gchar *name,
+					const gchar *description,
+					const gchar *location,
+					GVariant *defaults)
+{
+	PdDeviceImpl *device = PD_DEVICE_IMPL (_device);
+
+	gchar *path = pd_engine_add_printer (device->engine,
+					     name, description, location);
+	g_dbus_method_invocation_return_value (invocation,
+					       g_variant_new ("(o)", path));
+	g_free (path);
+}
+
 /* runs in thread dedicated to handling @invocation */
 static gboolean
-pd_device_impl_test_print (PdDevice *_device,
-			   GDBusMethodInvocation *invocation,
-			   GVariant *options)
+pd_device_impl_create_printer (PdDevice *_device,
+			       GDBusMethodInvocation *invocation,
+			       GVariant *options,
+			       const gchar *name,
+			       const gchar *description,
+			       const gchar *location,
+			       GVariant *defaults)
 {
-	g_dbus_method_invocation_return_error (invocation,
-					       PD_ERROR,
-					       PD_ERROR_FAILED,
-					       "Error doing test print");
+	/* Check if the user is authorized to create a printer */
+	//if (!pd_daemon_util_check_authorization_sync ())
+	//	goto out;
+
+	pd_device_impl_complete_create_printer (_device,
+						invocation,
+						options,
+						name,
+						description,
+						location,
+						defaults);
+
+	// out:
 	return TRUE; /* handled the method invocation */
 }
 
 static void
 pd_device_iface_init (PdDeviceIface *iface)
 {
-	//iface->handle_test_print = pd_device_impl_test_print;
+	iface->handle_create_printer = pd_device_impl_create_printer;
 }

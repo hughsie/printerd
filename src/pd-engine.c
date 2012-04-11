@@ -44,6 +44,7 @@ struct _PdEnginePrivate
 	PdObjectSkeleton *manager_object;
 	GUdevClient	*gudev_client;
 	GHashTable	*path_to_device;
+	GHashTable	*id_to_printer;
 };
 
 enum
@@ -61,6 +62,7 @@ pd_engine_finalize (GObject *object)
 
 	/* note: we don't hold a ref to engine->priv->daemon */
 	g_hash_table_unref (engine->priv->path_to_device);
+	g_hash_table_unref (engine->priv->id_to_printer);
 
 	if (G_OBJECT_CLASS (pd_engine_parent_class)->finalize != NULL)
 		G_OBJECT_CLASS (pd_engine_parent_class)->finalize (object);
@@ -173,6 +175,7 @@ pd_engine_device_add (PdEngine *engine,
 	g_debug ("add device %s [%s]", uri->str, ieee1284_id);
 
 	/* export on bus */
+	pd_device_impl_set_engine (PD_DEVICE_IMPL (device), engine);
 	id = pd_device_impl_get_id (PD_DEVICE_IMPL (device));
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/device/%s", id);
 	device_object = pd_object_skeleton_new (object_path);
@@ -326,6 +329,12 @@ pd_engine_start	(PdEngine *engine)
 							      g_free,
 							      g_object_unref);
 
+	/* keep a hash of printers by id */
+	engine->priv->id_to_printer = g_hash_table_new_full (g_str_hash,
+							     g_str_equal,
+							     g_free,
+							     g_object_unref);
+
 	/* start device scanning (for demo) */
 	devices = g_udev_client_query_by_subsystem (engine->priv->gudev_client,
 						    "usb");
@@ -333,6 +342,75 @@ pd_engine_start	(PdEngine *engine)
 		pd_engine_handle_uevent (engine, "add", G_UDEV_DEVICE (l->data));
 
 	g_object_unref (manager);
+}
+
+/**
+ * pd_engine_add_printer:
+ * @engine: A #PdEngine.
+ * @printer: A #PdPrinter.
+ *
+ * Adds a printer and exports it on the bus.  Returns a newly-
+ * allocated object path.
+ */
+gchar *
+pd_engine_add_printer	(PdEngine *engine,
+			 const gchar *name,
+			 const gchar *description,
+			 const gchar *location)
+{
+	const gchar *id;
+	GString *objid = NULL;
+	PdObjectSkeleton *printer_object;
+	PdPrinter *printer = NULL;
+	gchar *object_path = NULL;
+	PdDaemon *daemon;
+
+	printer = PD_PRINTER (g_object_new (PD_TYPE_PRINTER_IMPL,
+					    "name", name,
+					    "description", description,
+					    "location", location,
+					    NULL));
+
+	/* add it to the hash */
+	id = pd_printer_impl_get_id (PD_PRINTER_IMPL (printer));
+	if (g_hash_table_lookup (engine->priv->id_to_printer, id) != NULL) {
+		/* collision so choose another id */
+		unsigned int i;
+		g_debug ("add printer %s - collision", id);
+		for (i = 2; i < 1000; i++) {
+			objid = g_string_new (id);
+			g_string_append_printf (objid, "_%d", i);
+			if (g_hash_table_lookup (engine->priv->id_to_printer,
+						 objid->str) == NULL)
+				break;
+
+			g_string_free (objid, TRUE);
+		}
+
+		if (i == 1000)
+			goto out;
+
+		pd_printer_impl_set_id (PD_PRINTER_IMPL (printer), objid->str);
+	} else
+		objid = g_string_new (id);
+
+	g_hash_table_insert (engine->priv->id_to_printer,
+			     g_strdup (objid->str),
+			     (gpointer) printer);
+	g_debug ("add printer %s", objid->str);
+
+	/* export on bus */
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
+				       objid->str);
+	printer_object = pd_object_skeleton_new (object_path);
+	daemon = pd_engine_get_daemon (engine);
+	pd_object_skeleton_set_printer (printer_object, printer);
+	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
+					     G_DBUS_OBJECT_SKELETON (printer_object));
+
+ out:
+	g_string_free (objid, TRUE);
+	return object_path;
 }
 
 /**
