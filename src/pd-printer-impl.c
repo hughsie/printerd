@@ -44,7 +44,12 @@ typedef struct _PdPrinterImplClass	PdPrinterImplClass;
 struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
-	gchar			*sysfs_path;
+	gchar			*name;
+	gchar			*description;
+	gchar			*location;
+	gchar			*ieee1284_id;
+
+	gchar			*id;
 };
 
 struct _PdPrinterImplClass
@@ -55,7 +60,10 @@ struct _PdPrinterImplClass
 enum
 {
 	PROP_0,
-	PROP_SYSFS_PATH
+	PROP_NAME,
+	PROP_DESCRIPTION,
+	PROP_LOCATION,
+	PROP_IEEE1284_ID,
 };
 
 static void pd_printer_iface_init (PdPrinterIface *iface);
@@ -69,7 +77,10 @@ static void
 pd_printer_impl_finalize (GObject *object)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
-	g_free (printer->sysfs_path);
+	g_free (printer->name);
+	g_free (printer->description);
+	g_free (printer->location);
+	g_free (printer->ieee1284_id);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -82,8 +93,17 @@ pd_printer_impl_get_property (GObject *object,
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
 
 	switch (prop_id) {
-	case PROP_SYSFS_PATH:
-		g_value_set_string (value, printer->sysfs_path);
+	case PROP_NAME:
+		g_value_set_string (value, printer->name);
+		break;
+	case PROP_DESCRIPTION:
+		g_value_set_string (value, printer->description);
+		break;
+	case PROP_LOCATION:
+		g_value_set_string (value, printer->location);
+		break;
+	case PROP_IEEE1284_ID:
+		g_value_set_string (value, printer->ieee1284_id);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -100,10 +120,21 @@ pd_printer_impl_set_property (GObject *object,
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
 
 	switch (prop_id) {
-	case PROP_SYSFS_PATH:
-		g_assert (printer->sysfs_path == NULL);
-		/* we don't take a reference to the sysfs_path */
-		printer->sysfs_path = g_value_dup_string (value);
+	case PROP_NAME:
+		g_free (printer->name);
+		printer->name = g_value_dup_string (value);
+		break;
+	case PROP_DESCRIPTION:
+		g_free (printer->description);
+		printer->description = g_value_dup_string (value);
+		break;
+	case PROP_LOCATION:
+		g_free (printer->location);
+		printer->location = g_value_dup_string (value);
+		break;
+	case PROP_IEEE1284_ID:
+		g_free (printer->ieee1284_id);
+		printer->ieee1284_id = g_value_dup_string (value);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -129,17 +160,86 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 	gobject_class->get_property = pd_printer_impl_get_property;
 
 	/**
-	 * PdPrinterImpl:sysfs_path:
+	 * PdPrinterImpl:name:
 	 *
-	 * The #PdSerial for the object.
+	 * The name for the queue.
 	 */
 	g_object_class_install_property (gobject_class,
-					 PROP_SYSFS_PATH,
-					 g_param_spec_string ("sysfs-path",
-							      "Serial",
-							      "The sysfs path for the object",
+					 PROP_NAME,
+					 g_param_spec_string ("name",
+							      "Name",
+							      "The name for the queue",
 							      NULL,
 							      G_PARAM_READWRITE));
+
+	/**
+	 * PdPrinterImpl:description:
+	 *
+	 * The name for the queue.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_DESCRIPTION,
+					 g_param_spec_string ("description",
+							      "Description",
+							      "The description for the queue",
+							      NULL,
+							      G_PARAM_READWRITE));
+
+	/**
+	 * PdPrinterImpl:location:
+	 *
+	 * The location of the queue.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_LOCATION,
+					 g_param_spec_string ("location",
+							      "Location",
+							      "The location of the queue",
+							      NULL,
+							      G_PARAM_READWRITE));
+
+	/**
+	 * PdPrinterImpl:ieee1284-id:
+	 *
+	 * The IEEE 1284 Device ID used by the queue.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_IEEE1284_ID,
+					 g_param_spec_string ("ieee1284-id",
+							      "IEEE1284 ID",
+							      "The IEEE 1284 Device ID used by the queue",
+							      NULL,
+							      G_PARAM_READWRITE));
+}
+
+const gchar *
+pd_printer_impl_get_id (PdPrinterImpl *printer)
+{
+	/* shortcut */
+	if (printer->id != NULL)
+		goto out;
+
+	printer->id = g_strdup (printer->name);
+
+	/* ensure valid */
+	g_strcanon (printer->id,
+		    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		    "abcdefghijklmnopqrstuvwxyz"
+		    "1234567890_",
+		    '_');
+
+ out:
+	return printer->id;
+}
+
+void
+pd_printer_impl_set_id (PdPrinterImpl *printer,
+			const gchar *id)
+{
+	if (printer->id)
+		g_free (printer->id);
+
+	printer->id = g_strdup (id);
 }
 
 /* ------------------------------------------------------------------ */
