@@ -35,7 +35,7 @@
     <!-- Version: The version of the daemon currently running  -->
     <property name="Version" type="s" access="read"/>
     <!-- IsScanningDevices: If device scanning is enabled -->
-    <property name="IsScanningDevices" type="b" access="readwrite"/>
+    <property name="IsScanningDevices" type="b" access="read"/>
 
     <!--
         GetDevices:
@@ -56,6 +56,16 @@
     -->
     <method name="GetPrinters">
       <arg name="printers" direction="out" type="ao"/>
+    </method>
+
+    <!--
+        SetIsScanningDevices
+	@scanning: True if device scanning should be active.
+
+	Set whether device scanning is active.
+    -->
+    <method name="SetIsScanningDevices">
+      <arg name="scanning" direction="in" type="b"/>
     </method>
 
     <!--
@@ -107,10 +117,10 @@
   -->
   <interface name="org.freedesktop.printerd.Printer">
     <!-- DeviceUris: The device URIs used for this queue -->
-    <property name="DeviceUris" type="as" access="readwrite"/>
+    <property name="DeviceUris" type="as" access="read"/>
     <!-- Defaults: The job template attributes for this queue,
          e.g. media, print-quality -->
-    <property name="Defaults" type="a{sv}" access="readwrite"/>
+    <property name="Defaults" type="a{sv}" access="read"/>
     <!-- Supported: Supported values for job template attributes for
          this queue, e.g. media, print-quality. This follows the IPP
          model: generally they are lists but there are special cases,
@@ -118,17 +128,17 @@
          copies. -->
     <property name="Supported" type="a{sv}" access="read"/>
     <!-- IsAcceptingJobs: If jobs are accepted -->
-    <property name="IsAcceptingJobs" type="b" access="readwrite"/>
+    <property name="IsAcceptingJobs" type="b" access="read"/>
     <!-- State: The queue state, e.g. busy, paused, idle -->
     <property name="State" type="s" access="read"/>
     <!-- StateReasons: Keywords describing reason for state. -->
     <property name="StateReasons" type="as" access="read"/>
     <!-- Name: The name of this queue -->
-    <property name="Name" type="s" access="readwrite"/>
+    <property name="Name" type="s" access="read"/>
     <!-- Description: The queue description -->
-    <property name="Description" type="s" access="readwrite"/>
+    <property name="Description" type="s" access="read"/>
     <!-- Location: The queue location -->
-    <property name="Location" type="s" access="readwrite"/>
+    <property name="Location" type="s" access="read"/>
     <!-- Driver: The queue driver -->
     <property name="Driver" type="s" access="read"/>
     <!-- Ieee1284Id: IEEE1284 Device ID or blank if unknown. -->
@@ -139,6 +149,67 @@
     <property name="IsDefault" type="b" access="read"/>
     <!-- ActiveJobs: The jobs on this printer that are not completed -->
     <property name="ActiveJobs" type="ao" access="read"/>
+
+    <!--
+        SetDeviceUris:
+	@device_uris: List of device URIs.
+
+	Sets the list of device URIs to use for this printer.
+    -->
+    <method name="SetDeviceUris">
+      <arg name="device_uris" direction="in" type="as"/>
+    </method>
+
+    <!--
+        SetDefaults
+	@defaults: Job template attributes.
+
+	Sets the job template attributes for this queue, e.g. media,
+	print-quality.
+    -->
+    <method name="SetDefaults">
+      <arg name="defaults" direction="in" type="a{sv}"/>
+    </method>
+
+    <!--
+        SetIsAcceptingJobs:
+	@accepting: True if jobs should be accepted.
+
+	Sets whether jobs should be accepted for this queue.
+    -->
+    <method name="SetIsAcceptingJobs">
+      <arg name="accepting" direction="in" type="b"/>
+    </method>
+
+    <!--
+        SetName:
+	@name: Name of the queue.
+
+	Sets the name of the queue.
+    -->
+    <method name="SetName">
+      <arg name="name" direction="in" type="s"/>
+    </method>
+
+    <!--
+        SetDescription:
+	@description: Description for the queue.
+
+	Sets the description for the queue.
+    -->
+    <method name="SetDescription">
+      <arg name="description" direction="in" type="s"/>
+    </method>
+
+    <!--
+        SetLocation:
+	@location: Location of the queue.
+
+	Sets the location of the queue.
+    -->
+    <method name="SetLocation">
+      <arg name="location" direction="in" type="s"/>
+    </method>
 
     <!--
         UpdateDriver:
