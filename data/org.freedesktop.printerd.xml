@@ -84,6 +84,8 @@
         CreatePrinter:
         @options: Options (currently unused).
 	@name: Name for the printer.
+	@description: Description for the printer.
+	@location: Location of the printer.
 	@device_uris: Device URIs to send jobs to.
 	@defaults: Job template attributes e.g. media, print-quality.
         @resulting_printer: An object path to the object implementing the #org.freedesktop.printerd.Printer interface.
@@ -93,6 +95,8 @@
     <method name="CreatePrinter">
       <arg name="options" direction="in" type="a{sv}"/>
       <arg name="name" direction="in" type="s"/>
+      <arg name="description" direction="in" type="s"/>
+      <arg name="location" direction="in" type="s"/>
       <arg name="device_uris" direction="in" type="as"/>
       <arg name="defaults" direction="in" type="a{sv}"/>
       <arg name="resulting_printer" direction="out" type="o"/>
@@ -350,6 +354,8 @@
         CreatePrinter:
         @options: Options (currently unused).
 	@name: Name for the printer.
+	@description: Description for the printer.
+	@location: Location of the printer.
 	@defaults: Job template attributes e.g. media, print-quality.
 	@resulting_printer: An object path to the object implementing the #org.freedesktop.printerd.Printer interface.
 
@@ -358,7 +364,8 @@
     <method name="CreatePrinter">
       <arg name="options" direction="in" type="a{sv}"/>
       <arg name="name" direction="in" type="s"/>
-      <arg name="device_uris" direction="in" type="as"/>
+      <arg name="description" direction="in" type="s"/>
+      <arg name="location" direction="in" type="s"/>
       <arg name="defaults" direction="in" type="a{sv}"/>
       <arg name="resulting_printer" direction="out" type="o"/>
     </method>
