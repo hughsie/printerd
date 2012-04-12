@@ -244,21 +244,35 @@ pd_printer_impl_set_id (PdPrinterImpl *printer,
 
 /* ------------------------------------------------------------------ */
 
+static void
+pd_printer_impl_complete_set_device_uris (PdPrinter *_printer,
+					  GDBusMethodInvocation *invocation,
+					  const gchar *const *device_uris)
+{
+	pd_printer_set_device_uris (_printer, device_uris);
+	g_dbus_method_invocation_return_value (invocation, NULL);
+}
+
 /* runs in thread dedicated to handling @invocation */
 static gboolean
-pd_printer_impl_test_print (PdPrinter *_printer,
-			    GDBusMethodInvocation *invocation,
-			    GVariant *options)
+pd_printer_impl_set_device_uris (PdPrinter *_printer,
+				 GDBusMethodInvocation *invocation,
+				 const gchar *const *device_uris)
 {
-	g_dbus_method_invocation_return_error (invocation,
-					       PD_ERROR,
-					       PD_ERROR_FAILED,
-					       "Error doing test print");
+	/* Check if the user is authorized to create a printer */
+	//if (!pd_daemon_util_check_authorization_sync ())
+	//	goto out;
+
+	pd_printer_impl_complete_set_device_uris (_printer,
+						  invocation,
+						  device_uris);
+
+	//out:
 	return TRUE; /* handled the method invocation */
 }
 
 static void
 pd_printer_iface_init (PdPrinterIface *iface)
 {
-	//iface->handle_test_print = pd_printer_impl_test_print;
+	iface->handle_set_device_uris = pd_printer_impl_set_device_uris;
 }

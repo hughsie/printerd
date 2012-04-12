@@ -24,6 +24,7 @@
 
 #include "pd-common.h"
 #include "pd-device-impl.h"
+#include "pd-printer-impl.h"
 #include "pd-engine.h"
 
 /**
@@ -215,14 +216,32 @@ pd_device_impl_complete_create_printer (PdDevice *_device,
 					GVariant *defaults)
 {
 	PdDeviceImpl *device = PD_DEVICE_IMPL (_device);
+	PdPrinter *printer;
+	GString *path;
+	const gchar *device_uris[2];
 	const gchar *ieee1284_id = pd_device_get_ieee1284_id (_device);
 
-	gchar *path = pd_engine_add_printer (device->engine,
-					     name, description, location,
-					     ieee1284_id);
+	g_debug ("Creating printer from device %s", device->id);
+
+	printer = pd_engine_add_printer (device->engine,
+					 name, description, location,
+					 ieee1284_id);
+
+	/* set device uri */
+	device_uris[0] = pd_device_get_uri (_device);
+	device_uris[1] = NULL;
+	pd_printer_set_device_uris (printer, device_uris);
+
+	/* return object path */
+	path = g_string_new ("");
+	g_string_printf (path, "/org/freedesktop/printerd/printer/%s",
+			 pd_printer_impl_get_id (PD_PRINTER_IMPL (printer)));
 	g_dbus_method_invocation_return_value (invocation,
-					       g_variant_new ("(o)", path));
-	g_free (path);
+					       g_variant_new ("(o)",
+							      path->str));
+
+	/* clean up */
+	g_string_free (path, TRUE);
 }
 
 /* runs in thread dedicated to handling @invocation */

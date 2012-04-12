@@ -352,7 +352,7 @@ pd_engine_start	(PdEngine *engine)
  * Adds a printer and exports it on the bus.  Returns a newly-
  * allocated object path.
  */
-gchar *
+PdPrinter *
 pd_engine_add_printer	(PdEngine *engine,
 			 const gchar *name,
 			 const gchar *description,
@@ -412,7 +412,8 @@ pd_engine_add_printer	(PdEngine *engine,
 
  out:
 	g_string_free (objid, TRUE);
-	return object_path;
+	g_free (object_path);
+	return printer;
 }
 
 /**
