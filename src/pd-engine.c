@@ -356,7 +356,8 @@ gchar *
 pd_engine_add_printer	(PdEngine *engine,
 			 const gchar *name,
 			 const gchar *description,
-			 const gchar *location)
+			 const gchar *location,
+			 const gchar *ieee1284_id)
 {
 	const gchar *id;
 	GString *objid = NULL;
@@ -369,6 +370,7 @@ pd_engine_add_printer	(PdEngine *engine,
 					    "name", name,
 					    "description", description,
 					    "location", location,
+					    "ieee1284-id", ieee1284_id,
 					    NULL));
 
 	/* add it to the hash */

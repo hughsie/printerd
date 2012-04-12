@@ -215,9 +215,11 @@ pd_device_impl_complete_create_printer (PdDevice *_device,
 					GVariant *defaults)
 {
 	PdDeviceImpl *device = PD_DEVICE_IMPL (_device);
+	const gchar *ieee1284_id = pd_device_get_ieee1284_id (_device);
 
 	gchar *path = pd_engine_add_printer (device->engine,
-					     name, description, location);
+					     name, description, location,
+					     ieee1284_id);
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_new ("(o)", path));
 	g_free (path);

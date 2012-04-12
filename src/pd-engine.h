@@ -71,7 +71,8 @@ void		 pd_engine_start		(PdEngine	*engine);
 gchar		*pd_engine_add_printer		(PdEngine	*engine,
 						 const gchar	*name,
 						 const gchar	*description,
-						 const gchar	*location);
+						 const gchar	*location,
+						 const gchar	*ieee1284_id);
 
 G_END_DECLS
 
