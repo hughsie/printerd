@@ -68,6 +68,7 @@ PdEngine	*pd_engine_new			(PdDaemon	*daemon);
 PdDaemon	*pd_engine_get_daemon		(PdEngine	*engine);
 GUdevClient	*pd_engine_get_udev_client	(PdEngine	*engine);
 GList		*pd_engine_get_printer_ids	(PdEngine	*engine);
+GList		*pd_engine_get_devices		(PdEngine	*engine);
 void		 pd_engine_start		(PdEngine	*engine);
 PdPrinter	*pd_engine_add_printer		(PdEngine	*engine,
 						 const gchar	*name,

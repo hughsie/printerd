@@ -25,6 +25,7 @@
 #include "pd-manager-impl.h"
 #include "pd-daemon.h"
 #include "pd-engine.h"
+#include "pd-device-impl.h"
 
 /**
  * SECTION:pdmanager
@@ -210,6 +211,37 @@ pd_manager_impl_get_printers (PdManager *_manager,
 
 /* runs in thread dedicated to handling @invocation */
 static gboolean
+pd_manager_impl_get_devices (PdManager *_manager,
+			     GDBusMethodInvocation *invocation)
+{
+	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
+	PdDaemon *daemon = pd_manager_impl_get_daemon (manager);
+	PdEngine *engine = pd_daemon_get_engine (daemon);
+	GList *devices = pd_engine_get_devices (engine);
+	GList *each;
+	GVariantBuilder builder;
+	GString *path = g_string_new ("");
+
+	g_variant_builder_init (&builder, G_VARIANT_TYPE ("(ao)"));
+	g_variant_builder_open (&builder, G_VARIANT_TYPE ("ao"));
+	for (each = devices; each; each = g_list_next (each)) {
+		const gchar *id;
+		id = pd_device_impl_get_id (PD_DEVICE_IMPL (each->data));
+		g_string_printf (path, "/org/freedesktop/printerd/device/%s", id);
+		g_variant_builder_add (&builder, "o", path->str);
+	}
+	g_variant_builder_close (&builder);
+	g_dbus_method_invocation_return_value (invocation,
+					       g_variant_builder_end (&builder));
+
+	g_list_foreach (devices, (GFunc) g_object_unref, NULL);
+	g_list_free (devices);
+	g_string_free (path, TRUE);
+	return TRUE; /* handled the method invocation */
+}
+
+/* runs in thread dedicated to handling @invocation */
+static gboolean
 pd_manager_impl_add_printer (PdManager *_manager,
 			GDBusMethodInvocation *invocation,
 			GVariant *options)
@@ -250,4 +282,5 @@ static void
 pd_manager_iface_init (PdManagerIface *iface)
 {
 	iface->handle_get_printers = pd_manager_impl_get_printers;
+	iface->handle_get_devices = pd_manager_impl_get_devices;
 }

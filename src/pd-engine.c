@@ -433,6 +433,23 @@ pd_engine_get_printer_ids	(PdEngine *engine)
 }
 
 /**
+ * pd_engine_get_devices:
+ * @engine: A #PdEngine.
+ *
+ * Returns a newly-allocated list of Devices.  Use g_free_list()
+ * when done and g_object_unref() on the content.
+ */
+GList *
+pd_engine_get_devices	(PdEngine *engine)
+{
+	GList *devices;
+	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
+	devices = g_hash_table_get_values (engine->priv->path_to_device);
+	g_list_foreach (devices, (GFunc) g_object_ref, NULL);
+	return devices;
+}
+
+/**
  * pd_engine_new:
  * @daemon: A #PdDaemon.
  *
