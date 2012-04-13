@@ -24,6 +24,7 @@
 
 #include "pd-manager-impl.h"
 #include "pd-daemon.h"
+#include "pd-engine.h"
 
 /**
  * SECTION:pdmanager
@@ -182,6 +183,33 @@ pd_manager_impl_get_daemon (PdManagerImpl *manager)
 
 /* runs in thread dedicated to handling @invocation */
 static gboolean
+pd_manager_impl_get_printers (PdManager *_manager,
+			      GDBusMethodInvocation *invocation)
+{
+	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
+	PdDaemon *daemon = pd_manager_impl_get_daemon (manager);
+	PdEngine *engine = pd_daemon_get_engine (daemon);
+	GList *printer_ids = pd_engine_get_printer_ids (engine);
+	GList *each;
+	GVariantBuilder builder;
+	GString *path = g_string_new ("");
+
+	g_variant_builder_init (&builder, G_VARIANT_TYPE ("(ao)"));
+	g_variant_builder_open (&builder, G_VARIANT_TYPE ("ao"));
+	for (each = printer_ids; each; each = g_list_next (each)) {
+		g_string_printf (path, "/org/freedesktop/printerd/printer/%s",
+				 (const gchar *) each->data);
+		g_variant_builder_add (&builder, "o", path->str);
+	}
+	g_variant_builder_close (&builder);
+	g_dbus_method_invocation_return_value (invocation,
+					       g_variant_builder_end (&builder));
+	g_string_free (path, TRUE);
+	return TRUE; /* handled the method invocation */
+}
+
+/* runs in thread dedicated to handling @invocation */
+static gboolean
 pd_manager_impl_add_printer (PdManager *_manager,
 			GDBusMethodInvocation *invocation,
 			GVariant *options)
@@ -221,5 +249,5 @@ out:
 static void
 pd_manager_iface_init (PdManagerIface *iface)
 {
-	//iface->handle_add_printer = pd_manager_impl_add_printer;
+	iface->handle_get_printers = pd_manager_impl_get_printers;
 }

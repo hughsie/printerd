@@ -366,6 +366,8 @@ pd_engine_add_printer	(PdEngine *engine,
 	gchar *object_path = NULL;
 	PdDaemon *daemon;
 
+	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
+
 	printer = PD_PRINTER (g_object_new (PD_TYPE_PRINTER_IMPL,
 					    "name", name,
 					    "description", description,
@@ -414,6 +416,20 @@ pd_engine_add_printer	(PdEngine *engine,
 	g_string_free (objid, TRUE);
 	g_free (object_path);
 	return printer;
+}
+
+/**
+ * pd_engine_get_printer_ids:
+ * @engine: A #PdEngine.
+ *
+ * Returns a newly-allocated list of printer IDs.  Use g_free_list()
+ * when done; do not free or modify the content.
+ */
+GList *
+pd_engine_get_printer_ids	(PdEngine *engine)
+{
+	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
+	return g_hash_table_get_keys (engine->priv->id_to_printer);
 }
 
 /**
