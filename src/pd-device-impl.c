@@ -235,7 +235,7 @@ pd_device_impl_complete_create_printer (PdDevice *_device,
 	pd_printer_set_device_uris (printer, device_uris);
 
 	/* set job template attributes */
-	pd_printer_set_defaults (printer, defaults);
+	pd_printer_impl_update_defaults (PD_PRINTER_IMPL (printer), defaults);
 
 	/* return object path */
 	path = g_string_new ("");

@@ -48,6 +48,7 @@ struct _PdPrinterImpl
 	gchar			*description;
 	gchar			*location;
 	gchar			*ieee1284_id;
+	GHashTable		*defaults;
 
 	gchar			*id;
 };
@@ -64,6 +65,7 @@ enum
 	PROP_DESCRIPTION,
 	PROP_LOCATION,
 	PROP_IEEE1284_ID,
+	PROP_DEFAULTS,
 };
 
 static void pd_printer_iface_init (PdPrinterIface *iface);
@@ -81,6 +83,7 @@ pd_printer_impl_finalize (GObject *object)
 	g_free (printer->description);
 	g_free (printer->location);
 	g_free (printer->ieee1284_id);
+	g_hash_table_unref (printer->defaults);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -91,6 +94,10 @@ pd_printer_impl_get_property (GObject *object,
 			      GParamSpec *pspec)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
+	GVariantBuilder builder;
+	GHashTableIter iter;
+	gchar *dkey;
+	GVariant *dvalue;
 
 	switch (prop_id) {
 	case PROP_NAME:
@@ -105,6 +112,17 @@ pd_printer_impl_get_property (GObject *object,
 	case PROP_IEEE1284_ID:
 		g_value_set_string (value, printer->ieee1284_id);
 		break;
+	case PROP_DEFAULTS:
+		g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
+		g_hash_table_iter_init (&iter, printer->defaults);
+		while (g_hash_table_iter_next (&iter,
+					       (gpointer *) &dkey,
+					       (gpointer *) &dvalue))
+			g_variant_builder_add (&builder, "{sv}",
+					       g_strdup (dkey), dvalue);
+
+		g_value_set_variant (value, g_variant_builder_end (&builder));
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -118,6 +136,9 @@ pd_printer_impl_set_property (GObject *object,
 			      GParamSpec *pspec)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
+	GVariantIter iter;
+	gchar *dkey;
+	GVariant *dvalue;
 
 	switch (prop_id) {
 	case PROP_NAME:
@@ -136,6 +157,12 @@ pd_printer_impl_set_property (GObject *object,
 		g_free (printer->ieee1284_id);
 		printer->ieee1284_id = g_value_dup_string (value);
 		break;
+	case PROP_DEFAULTS:
+		g_hash_table_remove_all (printer->defaults);
+		g_variant_iter_init (&iter, g_value_get_variant (value));
+		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
+			g_hash_table_insert (printer->defaults, dkey, dvalue);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -150,11 +177,46 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 }
 
 static void
+pd_printer_impl_constructed (GObject *object)
+{
+	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
+	GVariantBuilder *builder, *builder_sub;
+
+	printer->defaults = g_hash_table_new_full (g_str_hash,
+						   g_str_equal,
+						   g_free,
+						   (GDestroyNotify) g_variant_unref);
+
+	/* set initial job template attributes */
+	g_hash_table_insert (printer->defaults,
+			     g_strdup ("media"),
+			     g_variant_ref_sink (g_variant_new ("s",
+								"iso-a4")));
+
+	/* set initial job template supported attributes */
+	builder = g_variant_builder_new (G_VARIANT_TYPE ("a{sv}"));
+
+	builder_sub = g_variant_builder_new (G_VARIANT_TYPE ("as"));
+	g_variant_builder_add (builder_sub, "s", "iso-a4");
+	g_variant_builder_add (builder_sub, "s", "na-letter");
+	g_variant_builder_add (builder,
+			       "{sv}",
+			       "media",
+			       g_variant_new ("as", builder_sub));
+	g_variant_builder_unref (builder_sub);
+
+	pd_printer_set_supported (PD_PRINTER (printer),
+				  g_variant_builder_end (builder));
+	g_variant_builder_unref (builder);
+}
+
+static void
 pd_printer_impl_class_init (PdPrinterImplClass *klass)
 {
 	GObjectClass *gobject_class;
 
 	gobject_class = G_OBJECT_CLASS (klass);
+	gobject_class->constructed = pd_printer_impl_constructed;
 	gobject_class->finalize = pd_printer_impl_finalize;
 	gobject_class->set_property = pd_printer_impl_set_property;
 	gobject_class->get_property = pd_printer_impl_get_property;
@@ -210,6 +272,20 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							      "The IEEE 1284 Device ID used by the queue",
 							      NULL,
 							      G_PARAM_READWRITE));
+
+	/**
+	 * PdPrinterImpl:defaults:
+	 *
+	 * The IEEE 1284 Device ID used by the queue.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_DEFAULTS,
+					 g_param_spec_variant ("defaults",
+							       "Defaults",
+							       "The job template attributes",
+							       G_VARIANT_TYPE ("a{sv}"),
+							       NULL,
+							       G_PARAM_READWRITE));
 }
 
 const gchar *
@@ -240,6 +316,26 @@ pd_printer_impl_set_id (PdPrinterImpl *printer,
 		g_free (printer->id);
 
 	printer->id = g_strdup (id);
+}
+
+void
+pd_printer_impl_update_defaults (PdPrinterImpl *printer,
+				 GVariant *defaults)
+{
+	GVariantIter iter;
+	gchar *key;
+	GVariant *value;
+
+	/* add/overwrite default values, keeping other existing values */
+	g_variant_iter_init (&iter, defaults);
+	while (g_variant_iter_next (&iter, "{sv}", &key, &value)) {
+		gchar *val = g_variant_print (value, TRUE);
+		g_debug ("Defaults: set %s=%s", key, val);
+		g_free (val);
+		g_hash_table_replace (printer->defaults,
+				      g_strdup (key),
+				      g_variant_ref (value));
+}
 }
 
 /* ------------------------------------------------------------------ */

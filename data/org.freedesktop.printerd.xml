@@ -165,14 +165,27 @@
     </method>
 
     <!--
-        SetDefaults
+        UpdateDefaults
 	@defaults: Job template attributes.
 
-	Sets the job template attributes for this queue, e.g. media,
-	print-quality.
+	Updates the provided job template attributes for this queue,
+	e.g. media, print-quality.
     -->
-    <method name="SetDefaults">
+    <method name="UpdateDefaults">
       <arg name="defaults" direction="in" type="a{sv}"/>
+    </method>
+
+    <!--
+        ResetDefaults
+	@defaults: Job template attribute names.
+
+	Resets the named job template attributes for this queue,
+	e.g. media, print-quality.  This may remove the attributes
+	from the #Defaults property.  Some attributes will always be
+	present, e.g. media.
+    -->
+    <method name="ResetDefaults">
+      <arg name="defaults" direction="in" type="as"/>
     </method>
 
     <!--

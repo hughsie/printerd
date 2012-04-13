@@ -33,6 +33,8 @@ GType		 pd_printer_impl_get_type	(void) G_GNUC_CONST;
 const gchar	*pd_printer_impl_get_id		(PdPrinterImpl	*printer);
 void		 pd_printer_impl_set_id		(PdPrinterImpl	*printer,
 						 const gchar	*id);
+void		 pd_printer_impl_update_defaults (PdPrinterImpl *printer,
+						  GVariant	*defaults);
 
 G_END_DECLS
 
