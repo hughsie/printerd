@@ -232,6 +232,9 @@ pd_device_impl_complete_create_printer (PdDevice *_device,
 	device_uris[1] = NULL;
 	pd_printer_set_device_uris (printer, device_uris);
 
+	/* set job template attributes */
+	pd_printer_set_defaults (printer, defaults);
+
 	/* return object path */
 	path = g_string_new ("");
 	g_string_printf (path, "/org/freedesktop/printerd/printer/%s",
