@@ -200,7 +200,9 @@ pd_device_impl_get_id (PdDeviceImpl *device)
 		    "1234567890_",
 		    '_');
 out:
-	g_hash_table_unref (ieee1284_id_fields);
+	if (ieee1284_id_fields)
+		g_hash_table_unref (ieee1284_id_fields);
+
 	return device->id;
 }
 
