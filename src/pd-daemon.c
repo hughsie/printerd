@@ -265,3 +265,18 @@ pd_daemon_find_object (PdDaemon *daemon,
 	return (PdObject *) g_dbus_object_manager_get_object (G_DBUS_OBJECT_MANAGER (daemon->object_manager),
 							      object_path);
 }
+
+/**
+ * pd_daemon_get_engine:
+ * @daemon: A #PdDaemon.
+ *
+ * Gets the engine used by @daemon.
+ *
+ * Returns: A #PdEngine instance. Do not free, the object is owned by @daemon.
+ */
+PdEngine *
+pd_daemon_get_engine (PdDaemon *daemon)
+{
+	g_return_val_if_fail (PD_IS_DAEMON (daemon), NULL);
+	return daemon->engine;
+}

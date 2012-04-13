@@ -36,6 +36,7 @@ GDBusObjectManagerServer	*pd_daemon_get_object_manager	(PdDaemon	*daemon);
 PolkitAuthority			*pd_daemon_get_authority	(PdDaemon	*daemon);
 PdObject			*pd_daemon_find_object		(PdDaemon	*daemon,
 								 const gchar	*object_path);
+PdEngine			*pd_daemon_get_engine		(PdDaemon	*daemon);
 
 G_END_DECLS
 
