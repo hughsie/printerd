@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2012 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,32 +18,19 @@
  *
  */
 
-#ifndef __PD_DAEMON_TYPES_H__
-#define __PD_DAEMON_TYPES_H__
+#ifndef __PD_JOB_IMPL_H__
+#define __PD_JOB_IMPL_H__
 
-#include <gio/gio.h>
-#include <polkit/polkit.h>
-#include <printerd/printerd.h>
-#include <gudev/gudev.h>
+#include "pd-daemontypes.h"
 
-#include <sys/types.h>
+G_BEGIN_DECLS
 
-struct _PdDaemon;
-typedef struct _PdDaemon PdDaemon;
+#define PD_TYPE_JOB_IMPL	(pd_job_impl_get_type ())
+#define PD_JOB_IMPL(o)	(G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_JOB_IMPL, PdJobImpl))
+#define PD_IS_JOB_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_JOB_IMPL))
 
-struct _PdEngine;
-typedef struct _PdEngine PdEngine;
+GType		 pd_job_impl_get_type		(void) G_GNUC_CONST;
 
-struct _PdManagerImpl;
-typedef struct _PdManagerImpl PdManagerImpl;
+G_END_DECLS
 
-struct _PdDeviceImpl;
-typedef struct _PdDeviceImpl PdDeviceImpl;
-
-struct _PdPrinterImpl;
-typedef struct _PdPrinterImpl PdPrinterImpl;
-
-struct _PdJobImpl;
-typedef struct _PdJobImpl PdJobImpl;
-
-#endif /* __PD_DAEMON_TYPES_H__ */
+#endif /* __PD_JOB_IMPL_H__ */

@@ -51,6 +51,8 @@ libprinterddaemon_la_SOURCES =					\
 	pd-device-impl.c					\
 	pd-printer-impl.h					\
 	pd-printer-impl.c					\
+	pd-job-impl.h						\
+	pd-job-impl.c						\
 	$(BUILT_SOURCES)
 
 libprinterddaemon_la_CFLAGS =					\
