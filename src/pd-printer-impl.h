@@ -30,6 +30,8 @@ G_BEGIN_DECLS
 #define PD_IS_PRINTER_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_PRINTER_IMPL))
 
 GType		 pd_printer_impl_get_type	(void) G_GNUC_CONST;
+void		 pd_printer_impl_set_engine	(PdPrinterImpl	*printer,
+						 PdEngine	*engine);
 const gchar	*pd_printer_impl_get_id		(PdPrinterImpl	*printer);
 void		 pd_printer_impl_set_id		(PdPrinterImpl	*printer,
 						 const gchar	*id);

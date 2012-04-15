@@ -23,6 +23,9 @@
 #include <glib.h>
 
 #include "pd-printer-impl.h"
+#include "pd-daemon.h"
+#include "pd-engine.h"
+#include "pd-job-impl.h"
 
 /**
  * SECTION:pdprinter
@@ -44,12 +47,14 @@ typedef struct _PdPrinterImplClass	PdPrinterImplClass;
 struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
+	PdEngine		*engine;
 	gchar			*name;
 	gchar			*description;
 	gchar			*location;
 	gchar			*ieee1284_id;
 	GHashTable		*defaults;
 
+	GList			*jobs;
 	gchar			*id;
 };
 
@@ -79,11 +84,14 @@ static void
 pd_printer_impl_finalize (GObject *object)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
+	/* note: we don't hold a reference to device->engine */
 	g_free (printer->name);
 	g_free (printer->description);
 	g_free (printer->location);
 	g_free (printer->ieee1284_id);
 	g_hash_table_unref (printer->defaults);
+	g_list_foreach (printer->jobs, (GFunc) g_object_unref, NULL);
+	g_list_free (printer->jobs);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -319,6 +327,13 @@ pd_printer_impl_set_id (PdPrinterImpl *printer,
 }
 
 void
+pd_printer_impl_set_engine (PdPrinterImpl *printer,
+			    PdEngine *engine)
+{
+	printer->engine = engine;
+}
+
+void
 pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 				 GVariant *defaults)
 {
@@ -368,7 +383,67 @@ pd_printer_impl_set_device_uris (PdPrinter *_printer,
 }
 
 static void
+pd_printer_impl_complete_create_job (PdPrinter *_printer,
+				     GDBusMethodInvocation *invocation,
+				     GVariant *options,
+				     const gchar *name,
+				     GVariant *attributes)
+{
+	PdPrinterImpl *printer = PD_PRINTER_IMPL (_printer);
+	PdObjectSkeleton *job_object;
+	PdJob *job;
+	PdDaemon *daemon;
+	gchar *object_path = NULL;
+
+	g_debug ("Creating job for printer %s", printer->id);
+
+	job = PD_JOB (g_object_new (PD_TYPE_JOB_IMPL,
+				    "name", name,
+				    NULL));
+
+	/* export on bus */
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%s/%d",
+				       printer->id,
+				       1);
+	job_object = pd_object_skeleton_new (object_path);
+	daemon = pd_engine_get_daemon (printer->engine);
+	pd_object_skeleton_set_job (job_object, job);
+	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
+					     G_DBUS_OBJECT_SKELETON (job_object));
+
+	g_dbus_method_invocation_return_value (invocation,
+					       g_variant_new ("(o)",
+							      object_path));
+
+	printer->jobs = g_list_prepend (printer->jobs, job);
+	g_free (object_path);
+}
+
+/* runs in thread dedicated to handling @invocation */
+static gboolean
+pd_printer_impl_create_job (PdPrinter *_printer,
+			    GDBusMethodInvocation *invocation,
+			    GVariant *options,
+			    const gchar *name,
+			    GVariant *attributes)
+{
+	/* Check if the user is authorized to create a job */
+	//if (!pd_daemon_util_check_authorization_sync ())
+	//	goto out;
+
+	pd_printer_impl_complete_create_job (_printer,
+					     invocation,
+					     options,
+					     name,
+					     attributes);
+
+	//out:
+	return TRUE; /* handled the method invocation */
+}
+
+static void
 pd_printer_iface_init (PdPrinterIface *iface)
 {
 	iface->handle_set_device_uris = pd_printer_impl_set_device_uris;
+	iface->handle_create_job = pd_printer_impl_create_job;
 }

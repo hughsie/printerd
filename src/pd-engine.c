@@ -404,6 +404,7 @@ pd_engine_add_printer	(PdEngine *engine,
 	g_debug ("add printer %s", objid->str);
 
 	/* export on bus */
+	pd_printer_impl_set_engine (PD_PRINTER_IMPL (printer), engine);
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
 				       objid->str);
 	printer_object = pd_object_skeleton_new (object_path);
