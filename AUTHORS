@@ -1,4 +1,5 @@
 Richard Hughes <richard@hughsie.com>
+Tim Waugh <twaugh@redhat.com>
 
 A lot of the boilerplate code has been taken from udisks2, which was
 written by David Zeuthen <davidz@redhat.com>
