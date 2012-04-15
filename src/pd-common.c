@@ -22,6 +22,8 @@
 
 #include <glib.h>
 
+#include "pd-common.h"
+
 GHashTable *
 pd_parse_ieee1284_id (const gchar *idstring)
 {
