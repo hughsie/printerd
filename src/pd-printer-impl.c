@@ -335,7 +335,7 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 		g_hash_table_replace (printer->defaults,
 				      g_strdup (key),
 				      g_variant_ref (value));
-}
+	}
 }
 
 /* ------------------------------------------------------------------ */
