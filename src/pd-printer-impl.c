@@ -394,11 +394,37 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	PdJob *job;
 	PdDaemon *daemon;
 	gchar *object_path = NULL;
+	GVariantBuilder builder;
+	GHashTableIter iter_attr;
+	GVariantIter iter_supplied;
+	gchar *dkey;
+	GVariant *dvalue;
 
 	g_debug ("Creating job for printer %s", printer->id);
 
+	/* set attributes from job template attributes */
+	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
+	g_hash_table_iter_init (&iter_attr, printer->defaults);
+	while (g_hash_table_iter_next (&iter_attr,
+				       (gpointer *) &dkey,
+				       (gpointer *) &dvalue)) {
+		if (!g_variant_lookup_value (attributes, dkey, NULL))
+			g_variant_builder_add (&builder, "{sv}",
+					       g_strdup (dkey),
+					       g_variant_ref (dvalue));
+	}
+
+	/* now update the attributes from the supplied ones */
+	g_variant_iter_init (&iter_supplied, attributes);
+	while (g_variant_iter_next (&iter_supplied, "{sv}", &dkey, &dvalue))
+		g_variant_builder_add (&builder, "{sv}",
+				     g_strdup (dkey),
+				     g_variant_ref (dvalue));
+
+	/* create the job */
 	job = PD_JOB (g_object_new (PD_TYPE_JOB_IMPL,
 				    "name", name,
+				    "attributes", g_variant_builder_end (&builder),
 				    NULL));
 
 	/* export on bus */

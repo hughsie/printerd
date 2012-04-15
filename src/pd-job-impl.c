@@ -45,6 +45,7 @@ struct _PdJobImpl
 {
 	PdJobSkeleton	 parent_instance;
 	gchar		*name;
+	GHashTable	*attributes;
 };
 
 struct _PdJobImplClass
@@ -56,6 +57,7 @@ enum
 {
 	PROP_0,
 	PROP_NAME,
+	PROP_ATTRIBUTES,
 };
 
 static void pd_job_iface_init (PdJobIface *iface);
@@ -80,10 +82,25 @@ pd_job_impl_get_property (GObject *object,
 			  GParamSpec *pspec)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
+	GVariantBuilder builder;
+	GHashTableIter iter;
+	gchar *dkey;
+	GVariant *dvalue;
 
 	switch (prop_id) {
 	case PROP_NAME:
 		g_value_set_string (value, job->name);
+		break;
+	case PROP_ATTRIBUTES:
+		g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
+		g_hash_table_iter_init (&iter, job->attributes);
+		while (g_hash_table_iter_next (&iter,
+					       (gpointer *) &dkey,
+					       (gpointer *) &dvalue))
+			g_variant_builder_add (&builder, "{sv}",
+					       g_strdup (dkey), dvalue);
+
+		g_value_set_variant (value, g_variant_builder_end (&builder));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -98,11 +115,20 @@ pd_job_impl_set_property (GObject *object,
 			  GParamSpec *pspec)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
+	GVariantIter iter;
+	gchar *dkey;
+	GVariant *dvalue;
 
 	switch (prop_id) {
 	case PROP_NAME:
 		g_free (job->name);
 		job->name = g_value_dup_string (value);
+		break;
+	case PROP_ATTRIBUTES:
+		g_hash_table_remove_all (job->attributes);
+		g_variant_iter_init (&iter, g_value_get_variant (value));
+		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
+			g_hash_table_insert (job->attributes, dkey, dvalue);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
