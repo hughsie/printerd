@@ -20,7 +20,12 @@
 
 #include "config.h"
 
+#include <errno.h>
+#include <unistd.h>
+
+#include <gio/gunixfdlist.h>
 #include <glib.h>
+#include <glib/gstdio.h>
 
 #include "pd-job-impl.h"
 
@@ -46,6 +51,8 @@ struct _PdJobImpl
 	PdJobSkeleton	 parent_instance;
 	gchar		*name;
 	GHashTable	*attributes;
+	gint		 document_fd;
+	gchar		*document_filename;
 };
 
 struct _PdJobImplClass
@@ -72,6 +79,12 @@ pd_job_impl_finalize (GObject *object)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
 	g_free (job->name);
+	if (job->document_fd != -1)
+		close (job->document_fd);
+	if (job->document_filename) {
+		g_unlink (job->document_filename);
+		g_free (job->document_filename);
+	}
 	G_OBJECT_CLASS (pd_job_impl_parent_class)->finalize (object);
 }
 
@@ -141,6 +154,8 @@ pd_job_impl_init (PdJobImpl *job)
 {
 	g_dbus_interface_skeleton_set_flags (G_DBUS_INTERFACE_SKELETON (job),
 					     G_DBUS_INTERFACE_SKELETON_FLAGS_HANDLE_METHOD_INVOCATIONS_IN_THREAD);
+
+	job->document_fd = -1;
 }
 
 static void
@@ -169,8 +184,149 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 
 /* ------------------------------------------------------------------ */
 
+/* runs in thread dedicated to handling @invocation */
+static gboolean
+pd_job_impl_add_document (PdJob *_job,
+			  GDBusMethodInvocation *invocation,
+			  GVariant *options,
+			  GVariant *file_descriptor)
+{
+	PdJobImpl *job = PD_JOB_IMPL (_job);
+	GDBusMessage *message;
+	GUnixFDList *fd_list;
+	gint32 fd_handle;
+	GError *error = NULL;
+
+	/* Check if the user is authorized to create a printer */
+	//if (!pd_daemon_util_check_authorization_sync ())
+	//	goto out;
+
+	if (job->document_fd != -1 ||
+	    job->document_filename != NULL) {
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       "No more documents allowed");
+		goto out;
+	}
+
+	message = g_dbus_method_invocation_get_message (invocation);
+	fd_list = g_dbus_message_get_unix_fd_list (message);
+	if (fd_list != NULL && g_unix_fd_list_get_length (fd_list) == 1) {
+		fd_handle = g_variant_get_handle (file_descriptor);
+		job->document_fd = g_unix_fd_list_get (fd_list,
+						       fd_handle,
+						       &error);
+		if (job->document_fd < 0) {
+			g_debug ("failed to get file descriptor: %s",
+				 error->message);
+			g_dbus_method_invocation_return_gerror (invocation,
+								error);
+			g_error_free (error);
+			goto out;
+		}
+
+		g_debug ("Got file descriptor: %d", job->document_fd);
+	}
+
+	g_dbus_method_invocation_return_value (invocation, NULL);
+
+ out:
+	return TRUE; /* handled the method invocation */
+}
+
+/* runs in thread dedicated to handling @invocation */
+static gboolean
+pd_job_impl_start (PdJob *_job,
+		   GDBusMethodInvocation *invocation)
+{
+	PdJobImpl *job = PD_JOB_IMPL (_job);
+	gchar *name_used = NULL;
+	GError *error = NULL;
+	gint infd = -1;
+	gint spoolfd = -1;
+	char buffer[1024];
+	ssize_t got, wrote;
+
+	/* Check if the user is authorized to create a printer */
+	//if (!pd_daemon_util_check_authorization_sync ())
+	//	goto out;
+
+	if (job->document_fd == -1) {
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       "No document");
+		goto out;
+	}
+
+	g_assert (job->document_filename == NULL);
+	spoolfd = g_file_open_tmp ("printerd-spool-XXXXXX",
+			      &name_used,
+			      &error);
+
+	if (spoolfd < 0) {
+		g_debug ("Error making temporary file: %s", error->message);
+		g_dbus_method_invocation_return_gerror (invocation,
+							error);
+		g_error_free (error);
+		goto out;
+	}
+
+	g_debug ("Created temporary file %s", name_used);
+	infd = job->document_fd;
+	job->document_fd = -1;
+
+	for (;;) {
+		char *ptr;
+		got = read (infd, buffer, sizeof (buffer));
+		if (got == 0)
+			/* end of file */
+			break;
+		else if (got < 0) {
+			/* error */
+			g_dbus_method_invocation_return_error (invocation,
+							       PD_ERROR,
+							       PD_ERROR_FAILED,
+							       "Error reading file");
+			goto out;
+		}
+
+		ptr = buffer;
+		while (got > 0) {
+			wrote = write (spoolfd, ptr, got);
+			if (wrote == -1) {
+				if (errno == EINTR)
+					continue;
+				else {
+					g_dbus_method_invocation_return_error (invocation,
+									       PD_ERROR,
+									       PD_ERROR_FAILED,
+									       "Error writing file");
+					goto out;
+				}
+			}
+
+			ptr += wrote;
+			got -= wrote;
+		}
+	}
+
+	g_dbus_method_invocation_return_value (invocation,
+					       g_variant_new ("()"));
+
+ out:
+	if (infd != -1)
+		close (infd);
+	if (spoolfd != -1)
+		close (spoolfd);
+	g_free (name_used);
+	return TRUE; /* handled the method invocation */
+}
+
 static void
 pd_job_iface_init (PdJobIface *iface)
 {
-	//iface->handle_xxx = pd_job_impl_xxx;
+	iface->handle_add_document = pd_job_impl_add_document;
+	iface->handle_start = pd_job_impl_start;
 }
