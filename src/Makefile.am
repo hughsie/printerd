@@ -92,4 +92,21 @@ printerd_LDADD = 						\
 
 # ----------------------------------------------------------------------
 
+bin_PROGRAMS = pd-client
+
+pd_client_SOURCES =						\
+	pd-client.c						\
+	$(NULL)
+
+pd_client_CFLAGS =						\
+	-DG_LOG_DOMAIN=\"printerd\"				\
+	$(NULL)
+
+pd_client_LDADD =						\
+	$(GLIB_LIBS)						\
+	libprinterddaemon.la					\
+	$(NULL)
+
+# ----------------------------------------------------------------------
+
 -include $(top_srcdir)/git.mk

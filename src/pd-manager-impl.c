@@ -195,6 +195,7 @@ pd_manager_impl_get_printers (PdManager *_manager,
 	GVariantBuilder builder;
 	GString *path = g_string_new ("");
 
+	g_debug ("Handling GetPrinters");
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("(ao)"));
 	g_variant_builder_open (&builder, G_VARIANT_TYPE ("ao"));
 	for (each = printer_ids; each; each = g_list_next (each)) {
@@ -222,6 +223,7 @@ pd_manager_impl_get_devices (PdManager *_manager,
 	GVariantBuilder builder;
 	GString *path = g_string_new ("");
 
+	g_debug ("Handling GetDevices");
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("(ao)"));
 	g_variant_builder_open (&builder, G_VARIANT_TYPE ("ao"));
 	for (each = devices; each; each = g_list_next (each)) {
