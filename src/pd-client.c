@@ -260,6 +260,7 @@ print_files (const char *printer_id,
 	}
 
 	g_debug ("Job started");
+	g_print ("Job path is %s\n", job_path);
 	ret = 0;
  out:
 	g_free (printer_path);
