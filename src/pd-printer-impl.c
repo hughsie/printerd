@@ -54,7 +54,6 @@ struct _PdPrinterImpl
 	gchar			*ieee1284_id;
 	GHashTable		*defaults;
 
-	GList			*jobs;
 	gchar			*id;
 };
 
@@ -90,8 +89,6 @@ pd_printer_impl_finalize (GObject *object)
 	g_free (printer->location);
 	g_free (printer->ieee1284_id);
 	g_hash_table_unref (printer->defaults);
-	g_list_foreach (printer->jobs, (GFunc) g_object_unref, NULL);
-	g_list_free (printer->jobs);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -390,9 +387,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				     GVariant *attributes)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (_printer);
-	PdObjectSkeleton *job_object;
 	PdJob *job;
-	PdDaemon *daemon;
 	gchar *object_path = NULL;
 	GVariantBuilder builder;
 	GHashTableIter iter_attr;
@@ -421,27 +416,17 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				     g_strdup (dkey),
 				     g_variant_ref (dvalue));
 
-	/* create the job */
-	job = PD_JOB (g_object_new (PD_TYPE_JOB_IMPL,
-				    "name", name,
-				    "attributes", g_variant_builder_end (&builder),
-				    NULL));
-
-	/* export on bus */
-	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%s/%d",
-				       printer->id,
-				       1);
-	job_object = pd_object_skeleton_new (object_path);
-	daemon = pd_engine_get_daemon (printer->engine);
-	pd_object_skeleton_set_job (job_object, job);
-	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
-					     G_DBUS_OBJECT_SKELETON (job_object));
-
+	job = pd_engine_add_job (printer->engine,
+				 printer->id,
+				 name,
+				 g_variant_builder_end (&builder));
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%s",
+				       pd_job_impl_get_id (PD_JOB_IMPL (job)));
+	g_debug ("Created job path is %s", object_path);
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_new ("(o)",
 							      object_path));
 
-	printer->jobs = g_list_prepend (printer->jobs, job);
 	g_free (object_path);
 }
 

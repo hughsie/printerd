@@ -30,6 +30,7 @@ G_BEGIN_DECLS
 #define PD_IS_JOB_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_JOB_IMPL))
 
 GType		 pd_job_impl_get_type		(void) G_GNUC_CONST;
+const gchar	*pd_job_impl_get_id		(PdJobImpl *job);
 
 G_END_DECLS
 

@@ -227,6 +227,12 @@ print_files (const char *printer_id,
 			g_error_free (error);
 			goto next_document;
 		}
+		if (g_dbus_message_get_message_type (reply) == G_DBUS_MESSAGE_TYPE_ERROR) {
+			g_dbus_message_to_gerror (reply, &error);
+			g_printerr ("Error adding document: %s\n", error->message);
+			g_error_free (error);
+			goto next_document;
+		}
 
 		g_debug ("Document added");
 		goto next_document;
@@ -239,6 +245,8 @@ print_files (const char *printer_id,
 		if (reply != NULL)
 			g_object_unref (reply);
 	}
+
+	error = NULL;
 
 	/* Now get the job and start it */
 	pd_job = pd_job_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,

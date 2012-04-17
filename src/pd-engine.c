@@ -29,6 +29,7 @@
 #include "pd-manager-impl.h"
 #include "pd-device-impl.h"
 #include "pd-printer-impl.h"
+#include "pd-job-impl.h"
 
 /**
  * SECTION:printerdengine
@@ -45,6 +46,8 @@ struct _PdEnginePrivate
 	GUdevClient	*gudev_client;
 	GHashTable	*path_to_device;
 	GHashTable	*id_to_printer;
+	GPtrArray	*jobs;
+	guint32		 next_job_id;
 };
 
 enum
@@ -63,6 +66,7 @@ pd_engine_finalize (GObject *object)
 	/* note: we don't hold a ref to engine->priv->daemon */
 	g_hash_table_unref (engine->priv->path_to_device);
 	g_hash_table_unref (engine->priv->id_to_printer);
+	g_ptr_array_free (engine->priv->jobs, TRUE);
 
 	if (G_OBJECT_CLASS (pd_engine_parent_class)->finalize != NULL)
 		G_OBJECT_CLASS (pd_engine_parent_class)->finalize (object);
@@ -248,6 +252,9 @@ pd_engine_init (PdEngine *engine)
 
 	engine->priv = G_TYPE_INSTANCE_GET_PRIVATE (engine, PD_TYPE_ENGINE, PdEnginePrivate);
 
+	engine->priv->jobs = g_ptr_array_new_full (0,
+						   (GDestroyNotify) g_object_unref);
+
 	/* get ourselves an udev client */
 	engine->priv->gudev_client = g_udev_client_new (subsystems);
 	g_signal_connect (engine->priv->gudev_client,
@@ -350,7 +357,7 @@ pd_engine_start	(PdEngine *engine)
  * @printer: A #PdPrinter.
  *
  * Adds a printer and exports it on the bus.  Returns a newly-
- * allocated object path.
+ * allocated object.
  */
 PdPrinter *
 pd_engine_add_printer	(PdEngine *engine,
@@ -417,6 +424,52 @@ pd_engine_add_printer	(PdEngine *engine,
 	g_string_free (objid, TRUE);
 	g_free (object_path);
 	return printer;
+}
+
+/**
+ * pd_engine_add_job:
+ * @engine: A #PdEngine.
+ * @job: A #PdJob.
+ *
+ * Adds a job to the global queue and exports it on the bus.  Returns
+ * a newly-allocated object.
+ */
+PdJob *
+pd_engine_add_job	(PdEngine *engine,
+			 const gchar *printer_id,
+			 const gchar *name,
+			 GVariant *attributes)
+{
+	PdJob *job = NULL;
+	gchar *job_id = NULL;
+	gchar *object_path = NULL;
+	PdObjectSkeleton *job_object;
+	PdDaemon *daemon;
+	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
+
+	/* create the job */
+	job_id = g_strdup_printf ("%d", engine->priv->next_job_id);
+	engine->priv->next_job_id++;
+
+	job = PD_JOB (g_object_new (PD_TYPE_JOB_IMPL,
+				    "id", job_id,
+				    "name", name,
+				    "attributes", attributes,
+				    NULL));
+
+	/* export on bus */
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%s",
+				       job_id);
+	g_debug ("New job path is %s", object_path);
+	job_object = pd_object_skeleton_new (object_path);
+	daemon = pd_engine_get_daemon (engine);
+	pd_object_skeleton_set_job (job_object, job);
+	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
+					     G_DBUS_OBJECT_SKELETON (job_object));
+
+	g_free (job_id);
+	g_free (object_path);
+	return job;
 }
 
 /**
