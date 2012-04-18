@@ -192,11 +192,20 @@ pd_printer_impl_constructed (GObject *object)
 						   g_free,
 						   (GDestroyNotify) g_variant_unref);
 
+	/* Defaults */
+
 	/* set initial job template attributes */
 	g_hash_table_insert (printer->defaults,
 			     g_strdup ("media"),
 			     g_variant_ref_sink (g_variant_new ("s",
 								"iso-a4")));
+	/* set initial printer description attributes */
+	g_hash_table_insert (printer->defaults,
+			     g_strdup ("document-format"),
+			     g_variant_ref_sink (g_variant_new ("s",
+								"application-pdf")));
+
+	/* Supported values */
 
 	/* set initial job template supported attributes */
 	builder = g_variant_builder_new (G_VARIANT_TYPE ("a{sv}"));
@@ -207,7 +216,13 @@ pd_printer_impl_constructed (GObject *object)
 	g_variant_builder_add (builder,
 			       "{sv}",
 			       "media",
-			       g_variant_new ("as", builder_sub));
+			       g_variant_builder_end (builder_sub));
+	g_variant_builder_unref (builder_sub);
+
+	builder_sub = g_variant_builder_new (G_VARIANT_TYPE ("as"));
+	g_variant_builder_add (builder_sub, "s", "application/pdf");
+	g_variant_builder_add (builder, "{sv}", "document-format",
+			       g_variant_builder_end (builder_sub));
 	g_variant_builder_unref (builder_sub);
 
 	pd_printer_set_supported (PD_PRINTER (printer),
