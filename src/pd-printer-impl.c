@@ -437,6 +437,22 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 	}
 }
 
+/**
+ * pd_printer_impl_get_uri:
+ * @printer: A #PdPrinterImpl.
+ *
+ * Get an appropriate device URI to start a job on.
+ */
+const gchar *
+pd_printer_impl_get_uri (PdPrinterImpl *printer)
+{
+	const gchar *const *device_uris;
+
+	/* Simple implementation: always use the first URI in the list */
+	device_uris = pd_printer_get_device_uris (PD_PRINTER (printer));
+	return device_uris[0];
+}
+
 /* ------------------------------------------------------------------ */
 
 static void

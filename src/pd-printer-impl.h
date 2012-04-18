@@ -48,6 +48,7 @@ void		 pd_printer_impl_set_id		(PdPrinterImpl	*printer,
 						 const gchar	*id);
 void		 pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 						  GVariant	*defaults);
+const gchar	*pd_printer_impl_get_uri	(PdPrinterImpl	*printer);
 
 G_END_DECLS
 
