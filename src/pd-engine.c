@@ -197,9 +197,12 @@ pd_engine_device_add (PdEngine *engine,
 					     G_DBUS_OBJECT_SKELETON (device_object));
 
 out:
-	g_string_free (uri, TRUE);
-	g_string_free (description, TRUE);
-	g_hash_table_unref (ieee1284_id_fields);
+	if (uri)
+		g_string_free (uri, TRUE);
+	if (description)
+		g_string_free (description, TRUE);
+	if (ieee1284_id_fields)
+		g_hash_table_unref (ieee1284_id_fields);
 	g_free (object_path);
 	return device;
 }
@@ -236,9 +239,10 @@ pd_engine_handle_uevent (PdEngine *engine,
 
 		/* add to hash and add to database */
 		device = pd_engine_device_add (engine, udevdevice);
-		g_hash_table_insert (engine->priv->path_to_device,
-				     g_strdup (g_udev_device_get_sysfs_path (udevdevice)),
-				     (gpointer) device);
+		if (device)
+			g_hash_table_insert (engine->priv->path_to_device,
+					     g_strdup (g_udev_device_get_sysfs_path (udevdevice)),
+					     (gpointer) device);
 		return;
 	}
 }
