@@ -501,9 +501,9 @@ set_pending_job_processing	(gpointer data,
 	g_return_if_fail (PD_IS_ENGINE (engine));
 	g_return_if_fail (PD_IS_JOB (job));
 
-	g_debug ("Examining job %u", pd_job_get_id (job));
+	g_debug ("  Examining job %u", pd_job_get_id (job));
 	job_state = pd_job_get_state (job);
-	g_debug ("Job state is %s",
+	g_debug ("    Job state is %s",
 		 pd_job_state_as_string (job_state));
 	if (job_state != PD_JOB_STATE_PENDING)
 		goto out;
@@ -511,24 +511,24 @@ set_pending_job_processing	(gpointer data,
 	printer_path = pd_job_get_printer (job);
 	printer_id = g_strrstr (printer_path, "/");
 	if (!printer_id) {
-		g_debug ("Invalid printer path %s", printer_path);
+		g_debug ("    Invalid printer path %s", printer_path);
 		goto out;
 	}
 
 	printer_id = g_strdup (printer_id + 1);
 	printer = g_hash_table_lookup (engine->priv->id_to_printer, printer_id);
 	if (!printer) {
-		g_debug ("Incorrect printer ID %s", printer_id);
+		g_debug ("    Incorrect printer ID %s", printer_id);
 		goto out;
 	}
 
 	printer_state = pd_printer_get_state (printer);
-	g_debug ("Printer state is %s",
+	g_debug ("    Printer state is %s",
 		 pd_printer_state_as_string (printer_state));
 	if (printer_state != PD_PRINTER_STATE_IDLE)
 		goto out;
 
-	g_debug ("Starting to process job %u", pd_job_get_id (job));
+	g_debug ("    -> Set job state to processing");
 	pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
  out:
 	g_free (printer_id);
@@ -543,6 +543,7 @@ set_pending_job_processing	(gpointer data,
 void
 pd_engine_start_jobs	(PdEngine *engine)
 {
+	g_debug ("Looking for pending jobs to start");
 	g_ptr_array_foreach (engine->priv->jobs,
 			     set_pending_job_processing,
 			     engine);

@@ -291,7 +291,7 @@ pd_job_impl_add_document (PdJob *_job,
 						       fd_handle,
 						       &error);
 		if (job->document_fd < 0) {
-			g_debug ("failed to get file descriptor: %s",
+			g_debug ("  failed to get file descriptor: %s",
 				 error->message);
 			g_dbus_method_invocation_return_gerror (invocation,
 								error);
@@ -299,7 +299,7 @@ pd_job_impl_add_document (PdJob *_job,
 			goto out;
 		}
 
-		g_debug ("Got file descriptor: %d", job->document_fd);
+		g_debug ("  Got file descriptor: %d", job->document_fd);
 	}
 
 	g_dbus_method_invocation_return_value (invocation, NULL);
@@ -346,7 +346,10 @@ pd_job_impl_start (PdJob *_job,
 		goto out;
 	}
 
-	g_debug ("Created temporary file %s", name_used);
+	g_debug ("Starting job");
+
+	g_debug ("  Spooling");
+	g_debug ("    Created temporary file %s", name_used);
 	infd = job->document_fd;
 	job->document_fd = -1;
 
@@ -386,6 +389,7 @@ pd_job_impl_start (PdJob *_job,
 	}
 
 	/* Move the job state to pending */
+	g_debug ("  Set job state to pending");
 	pd_job_set_state (PD_JOB (job),
 			  PD_JOB_STATE_PENDING);
 
