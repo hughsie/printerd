@@ -133,8 +133,8 @@
     <property name="Supported" type="a{sv}" access="read"/>
     <!-- IsAcceptingJobs: If jobs are accepted -->
     <property name="IsAcceptingJobs" type="b" access="read"/>
-    <!-- State: The queue state, e.g. busy, paused, idle -->
-    <property name="State" type="s" access="read"/>
+    <!-- State: The queue state, e.g. busy, paused, idle (IPP enum) -->
+    <property name="State" type="u" access="read"/>
     <!-- StateReasons: Keywords describing reason for state. -->
     <property name="StateReasons" type="as" access="read"/>
     <!-- Name: The name of this queue -->
@@ -278,12 +278,12 @@
     <property name="Printer" type="o" access="read"/>
     <!-- DeviceUri: Device URI used -->
     <property name="DeviceUri" type="s" access="read"/>
-    <!-- State: Job state (e.g. pending, processing, etc) -->
-    <property name="State" type="s" access="read"/>
+    <!-- State: Job state (e.g. pending, processing, etc: IPP enum) -->
+    <property name="State" type="u" access="read"/>
     <!-- StateReasons: Keywords describing reason for state -->
     <property name="StateReasons" type="as" access="read"/>
     <!-- Id: Job ID -->
-    <property name="Id" type="s" access="read"/>
+    <property name="Id" type="u" access="read"/>
     <!-- Name: Job name -->
     <property name="Name" type="s" access="read"/>
     <!-- Attributes: Job attributes -->

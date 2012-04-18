@@ -29,8 +29,22 @@ G_BEGIN_DECLS
 #define PD_JOB_IMPL(o)	(G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_JOB_IMPL, PdJobImpl))
 #define PD_IS_JOB_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_JOB_IMPL))
 
+/**
+ * Job states
+ * (From RFC 2911)
+ */
+typedef enum
+{
+	PD_JOB_STATE_PENDING = 3,	/* candidate to start processing */
+	PD_JOB_STATE_PENDING_HELD,	/* reasons not to process */
+	PD_JOB_STATE_PROCESSING,	/* job running */
+	PD_JOB_STATE_PROCESSING_STOPPED,/* processing is paused */
+	PD_JOB_STATE_CANCELED,		/* terminal state */
+	PD_JOB_STATE_ABORTED,		/* terminal state */
+	PD_JOB_STATE_COMPLETED,		/* terminal state */
+} pd_job_state_t;
+
 GType		 pd_job_impl_get_type		(void) G_GNUC_CONST;
-const gchar	*pd_job_impl_get_id		(PdJobImpl *job);
 
 G_END_DECLS
 

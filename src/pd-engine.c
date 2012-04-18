@@ -47,7 +47,7 @@ struct _PdEnginePrivate
 	GHashTable	*path_to_device;
 	GHashTable	*id_to_printer;
 	GPtrArray	*jobs;
-	guint32		 next_job_id;
+	guint		 next_job_id;
 };
 
 enum
@@ -254,6 +254,7 @@ pd_engine_init (PdEngine *engine)
 
 	engine->priv->jobs = g_ptr_array_new_full (0,
 						   (GDestroyNotify) g_object_unref);
+	engine->priv->next_job_id = 1;
 
 	/* get ourselves an udev client */
 	engine->priv->gudev_client = g_udev_client_new (subsystems);
@@ -441,24 +442,24 @@ pd_engine_add_job	(PdEngine *engine,
 			 GVariant *attributes)
 {
 	PdJob *job = NULL;
-	gchar *job_id = NULL;
 	gchar *object_path = NULL;
 	PdObjectSkeleton *job_object;
 	PdDaemon *daemon;
+	guint job_id;
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 
 	/* create the job */
-	job_id = g_strdup_printf ("%d", engine->priv->next_job_id);
+	job_id = engine->priv->next_job_id;
 	engine->priv->next_job_id++;
-
 	job = PD_JOB (g_object_new (PD_TYPE_JOB_IMPL,
 				    "id", job_id,
 				    "name", name,
 				    "attributes", attributes,
 				    NULL));
 
+
 	/* export on bus */
-	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%s",
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       job_id);
 	g_debug ("New job path is %s", object_path);
 	job_object = pd_object_skeleton_new (object_path);
@@ -467,7 +468,6 @@ pd_engine_add_job	(PdEngine *engine,
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (job_object));
 
-	g_free (job_id);
 	g_free (object_path);
 	return job;
 }

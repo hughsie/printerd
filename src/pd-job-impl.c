@@ -49,7 +49,6 @@ typedef struct _PdJobImplClass	PdJobImplClass;
 struct _PdJobImpl
 {
 	PdJobSkeleton	 parent_instance;
-	gchar		*id;
 	gchar		*name;
 	GHashTable	*attributes;
 	gint		 document_fd;
@@ -64,7 +63,6 @@ struct _PdJobImplClass
 enum
 {
 	PROP_0,
-	PROP_ID,
 	PROP_NAME,
 	PROP_ATTRIBUTES,
 };
@@ -80,7 +78,6 @@ static void
 pd_job_impl_finalize (GObject *object)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
-	g_free (job->id);
 	g_free (job->name);
 	if (job->document_fd != -1)
 		close (job->document_fd);
@@ -105,9 +102,6 @@ pd_job_impl_get_property (GObject *object,
 	GVariant *dvalue;
 
 	switch (prop_id) {
-	case PROP_ID:
-		g_value_set_string (value, job->id);
-		break;
 	case PROP_NAME:
 		g_value_set_string (value, job->name);
 		break;
@@ -140,10 +134,6 @@ pd_job_impl_set_property (GObject *object,
 	GVariant *dvalue;
 
 	switch (prop_id) {
-	case PROP_ID:
-		g_free (job->id);
-		job->id = g_value_dup_string (value);
-		break;
 	case PROP_NAME:
 		g_free (job->name);
 		job->name = g_value_dup_string (value);
@@ -171,6 +161,9 @@ pd_job_impl_init (PdJobImpl *job)
 						 g_str_equal,
 						 g_free,
 						 (GDestroyNotify) g_variant_unref);
+
+	pd_job_set_state (PD_JOB (job),
+			  PD_JOB_STATE_PENDING_HELD);
 }
 
 static void
@@ -182,19 +175,6 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 	gobject_class->finalize = pd_job_impl_finalize;
 	gobject_class->set_property = pd_job_impl_set_property;
 	gobject_class->get_property = pd_job_impl_get_property;
-
-	/**
-	 * PdJobImpl:id:
-	 *
-	 * The ID for the job.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_ID,
-					 g_param_spec_string ("id",
-							      "ID",
-							      "The ID for the job",
-							      NULL,
-							      G_PARAM_READWRITE));
 
 	/**
 	 * PdJobImpl:name:
@@ -222,12 +202,6 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							       G_VARIANT_TYPE ("a{sv}"),
 							       NULL,
 							       G_PARAM_READWRITE));
-}
-
-const gchar *
-pd_job_impl_get_id (PdJobImpl *job)
-{
-	return job->id;
 }
 
 /* ------------------------------------------------------------------ */
@@ -362,6 +336,8 @@ pd_job_impl_start (PdJob *_job,
 		}
 	}
 
+	pd_job_set_state (PD_JOB (job),
+			  PD_JOB_STATE_PENDING);
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_new ("()"));
 
