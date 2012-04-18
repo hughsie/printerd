@@ -459,6 +459,8 @@ pd_engine_add_job	(PdEngine *engine,
 				    NULL));
 
 
+	pd_job_impl_set_engine (PD_JOB_IMPL (job), engine);
+
 	/* export on bus */
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       job_id);
@@ -469,8 +471,81 @@ pd_engine_add_job	(PdEngine *engine,
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (job_object));
 
+	g_ptr_array_add (engine->priv->jobs,
+			 (gpointer) g_object_ref (job));
+
 	g_free (object_path);
 	return job;
+}
+
+/**
+ * set_pending_job_processing:
+ * @engine: A #PdEngine.
+ * @job: A #PdJob.
+ *
+ * Examines a job to see if it can be moved from a pending state to a
+ * processing state, and moves it if so.
+ */
+static void
+set_pending_job_processing	(gpointer data,
+				 gpointer user_data)
+{
+	PdJob *job = (PdJob *) data;
+	PdEngine *engine = (PdEngine *) user_data;
+	const gchar *printer_path;
+	gchar *printer_id = NULL;
+	PdPrinter *printer;
+	guint job_state;
+	guint printer_state;
+
+	g_return_if_fail (PD_IS_ENGINE (engine));
+	g_return_if_fail (PD_IS_JOB (job));
+
+	g_debug ("Examining job %u", pd_job_get_id (job));
+	job_state = pd_job_get_state (job);
+	g_debug ("Job state is %s",
+		 pd_job_state_as_string (job_state));
+	if (job_state != PD_JOB_STATE_PENDING)
+		goto out;
+
+	printer_path = pd_job_get_printer (job);
+	printer_id = g_strrstr (printer_path, "/");
+	if (!printer_id) {
+		g_debug ("Invalid printer path %s", printer_path);
+		goto out;
+	}
+
+	printer_id = g_strdup (printer_id + 1);
+	printer = g_hash_table_lookup (engine->priv->id_to_printer, printer_id);
+	if (!printer) {
+		g_debug ("Incorrect printer ID %s", printer_id);
+		goto out;
+	}
+
+	printer_state = pd_printer_get_state (printer);
+	g_debug ("Printer state is %s",
+		 pd_printer_state_as_string (printer_state));
+	if (printer_state != PD_PRINTER_STATE_IDLE)
+		goto out;
+
+	g_debug ("Starting to process job %u", pd_job_get_id (job));
+	pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
+ out:
+	g_free (printer_id);
+}
+
+/**
+ * pd_engine_start_jobs:
+ * @engine: A #PdEngine.
+ *
+ * Starts processing pending jobs.
+ */
+void
+pd_engine_start_jobs	(PdEngine *engine)
+{
+	g_ptr_array_foreach (engine->priv->jobs,
+			     set_pending_job_processing,
+			     engine);
 }
 
 /**

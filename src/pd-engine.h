@@ -79,6 +79,7 @@ PdJob		*pd_engine_add_job		(PdEngine	*engine,
 						 const gchar	*printer_path,
 						 const gchar	*name,
 						 GVariant	*attributes);
+void		 pd_engine_start_jobs		(PdEngine	*engine);
 
 G_END_DECLS
 

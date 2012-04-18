@@ -271,8 +271,9 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 							g_str_equal,
 							g_free,
 							NULL);
-	gchar *paused = g_strdup ("paused");
-	g_hash_table_insert (printer->state_reasons, paused, paused);
+
+	/* Set initial state */
+	pd_printer_set_state (PD_PRINTER (printer), PD_PRINTER_STATE_IDLE);
 }
 
 static void

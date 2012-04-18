@@ -27,6 +27,7 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 
+#include "pd-engine.h"
 #include "pd-job-impl.h"
 
 /**
@@ -49,6 +50,7 @@ typedef struct _PdJobImplClass	PdJobImplClass;
 struct _PdJobImpl
 {
 	PdJobSkeleton	 parent_instance;
+	PdEngine	*engine;
 	gchar		*name;
 	GHashTable	*attributes;
 	GHashTable	*state_reasons;
@@ -80,6 +82,7 @@ static void
 pd_job_impl_finalize (GObject *object)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
+	/* note: we don't hold a reference to device->engine */
 	g_free (job->name);
 	if (job->document_fd != -1)
 		close (job->document_fd);
@@ -243,6 +246,13 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							     G_PARAM_READWRITE));
 }
 
+void
+pd_job_impl_set_engine (PdJobImpl *job,
+			PdEngine *engine)
+{
+	job->engine = engine;
+}
+
 /* ------------------------------------------------------------------ */
 
 /* runs in thread dedicated to handling @invocation */
@@ -382,6 +392,9 @@ pd_job_impl_start (PdJob *_job,
 	/* Job is no longer incoming so remove that state reason if
 	   present */
 	g_hash_table_remove (job->state_reasons, "job-incoming");
+
+	/* Start processing it if possible */
+	pd_engine_start_jobs (job->engine);
 
 	/* Return success */
 	g_dbus_method_invocation_return_value (invocation,
