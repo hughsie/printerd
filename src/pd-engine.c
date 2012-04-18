@@ -436,6 +436,26 @@ pd_engine_add_printer	(PdEngine *engine,
 }
 
 /**
+ * pd_engine_get_printer_by_path:
+ * @engine: A #PdEngine.
+ * @printer_path: An object path.
+ *
+ * Gets a reference to the given printer.
+ */
+PdPrinter *
+pd_engine_get_printer_by_path	(PdEngine *engine,
+				 const gchar *printer_path)
+{
+	const gchar *printer_id = g_strrstr (printer_path, "/");
+	if (!printer_id)
+		return NULL;
+
+	printer_id++;
+	return g_object_ref (g_hash_table_lookup (engine->priv->id_to_printer,
+						  printer_id));
+}
+
+/**
  * pd_engine_add_job:
  * @engine: A #PdEngine.
  * @job: A #PdJob.
@@ -517,14 +537,7 @@ set_pending_job_processing	(gpointer data,
 		goto out;
 
 	printer_path = pd_job_get_printer (job);
-	printer_id = g_strrstr (printer_path, "/");
-	if (!printer_id) {
-		g_debug ("    Invalid printer path %s", printer_path);
-		goto out;
-	}
-
-	printer_id = g_strdup (printer_id + 1);
-	printer = g_hash_table_lookup (engine->priv->id_to_printer, printer_id);
+	printer = pd_engine_get_printer_by_path (engine, printer_path);
 	if (!printer) {
 		g_debug ("    Incorrect printer ID %s", printer_id);
 		goto out;
@@ -538,6 +551,8 @@ set_pending_job_processing	(gpointer data,
 
 	g_debug ("    -> Set job state to processing");
 	pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
+
+	pd_job_impl_start_processing (PD_JOB_IMPL (job));
  out:
 	g_free (printer_id);
 }
