@@ -437,7 +437,7 @@ pd_engine_add_printer	(PdEngine *engine,
  */
 PdJob *
 pd_engine_add_job	(PdEngine *engine,
-			 const gchar *printer_id,
+			 const gchar *printer_path,
 			 const gchar *name,
 			 GVariant *attributes)
 {
@@ -455,6 +455,7 @@ pd_engine_add_job	(PdEngine *engine,
 				    "id", job_id,
 				    "name", name,
 				    "attributes", attributes,
+				    "printer", printer_path,
 				    NULL));
 
 

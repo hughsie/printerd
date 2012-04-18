@@ -480,6 +480,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (_printer);
 	PdJob *job;
 	gchar *object_path = NULL;
+	gchar *printer_path = NULL;
 	GVariantBuilder builder;
 	GHashTableIter iter_attr;
 	GVariantIter iter_supplied;
@@ -517,8 +518,10 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				       g_variant_ref (dvalue));
 	}
 
+	printer_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
+					printer->id);
 	job = pd_engine_add_job (printer->engine,
-				 printer->id,
+				 printer_path,
 				 name,
 				 g_variant_builder_end (&builder));
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
@@ -530,6 +533,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 
  out:
 	g_free (object_path);
+	g_free (printer_path);
 }
 
 /* runs in thread dedicated to handling @invocation */

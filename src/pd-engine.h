@@ -76,7 +76,7 @@ PdPrinter	*pd_engine_add_printer		(PdEngine	*engine,
 						 const gchar	*location,
 						 const gchar	*ieee1284_id);
 PdJob		*pd_engine_add_job		(PdEngine	*engine,
-						 const gchar	*printer_id,
+						 const gchar	*printer_path,
 						 const gchar	*name,
 						 GVariant	*attributes);
 
