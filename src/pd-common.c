@@ -23,6 +23,8 @@
 #include <glib.h>
 
 #include "pd-common.h"
+#include "pd-job-impl.h"
+#include "pd-printer-impl.h"
 
 GHashTable *
 pd_parse_ieee1284_id (const gchar *idstring)
@@ -67,4 +69,40 @@ pd_parse_ieee1284_id (const gchar *idstring)
 
 	g_strfreev (fvs);
 	return fields;
+}
+
+const gchar *
+pd_job_state_as_string (guint job_state)
+{
+	static const gchar *text[] = {
+		"pending",
+		"pending-held",
+		"processing",
+		"processing-stopped",
+		"canceled",
+		"aborted",
+		"completed"
+	};
+
+	if (job_state < PD_JOB_STATE_PENDING ||
+	    job_state - 3 > sizeof (text))
+		return "unknown";
+
+	return text[job_state - PD_JOB_STATE_PENDING];
+}
+
+const gchar *
+pd_printer_state_as_string (guint printer_state)
+{
+	static const gchar *text[] = {
+		"idle",
+		"processing",
+		"stopped"
+	};
+
+	if (printer_state < PD_PRINTER_STATE_IDLE ||
+	    printer_state - 3 > sizeof (text))
+		return "unknown";
+
+	return text[printer_state - PD_PRINTER_STATE_IDLE];
 }

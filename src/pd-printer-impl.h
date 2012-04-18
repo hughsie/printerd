@@ -29,6 +29,17 @@ G_BEGIN_DECLS
 #define PD_PRINTER_IMPL(o)	(G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_PRINTER_IMPL, PdPrinterImpl))
 #define PD_IS_PRINTER_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_PRINTER_IMPL))
 
+/**
+ * Printer states
+ * (From RFC 2911)
+ */
+typedef enum
+{
+	PD_PRINTER_STATE_IDLE = 3,
+	PD_PRINTER_STATE_PROCESSING,
+	PD_PRINTER_STATE_STOPPED,
+} pd_printer_state_t;
+
 GType		 pd_printer_impl_get_type	(void) G_GNUC_CONST;
 void		 pd_printer_impl_set_engine	(PdPrinterImpl	*printer,
 						 PdEngine	*engine);
