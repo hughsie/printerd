@@ -29,6 +29,7 @@
 
 #include "pd-engine.h"
 #include "pd-job-impl.h"
+#include "pd-printer-impl.h"
 
 /**
  * SECTION:pdjob
@@ -251,6 +252,42 @@ pd_job_impl_set_engine (PdJobImpl *job,
 			PdEngine *engine)
 {
 	job->engine = engine;
+}
+
+/**
+ * pd_job_impl_start_processing:
+ * @job: A #PdJobImpl
+ *
+ * The job is available for processing and the printer is ready so
+ * start processing the job.
+ */
+void
+pd_job_impl_start_processing (PdJobImpl *job)
+{
+	const gchar *printer_path;
+	const gchar *uri;
+	PdPrinter *printer = NULL;
+
+	g_debug ("Starting to process job %u", pd_job_get_id (PD_JOB (job)));
+
+	/* No filtering yet (to be done): instead just run it through
+	   the backend. */
+
+	/* Get the device URI to use from the Printer */
+	printer_path = pd_job_get_printer (PD_JOB (job));
+	printer = pd_engine_get_printer_by_path (job->engine, printer_path);
+	if (!printer) {
+		g_debug ("Incorrect printer path %s", printer_path);
+		goto out;
+	}
+
+	uri = pd_printer_impl_get_uri (PD_PRINTER_IMPL (printer));
+	g_debug ("  Using device URI %s", uri);
+	pd_job_set_device_uri (PD_JOB (job), uri);
+
+ out:
+	if (printer)
+		g_object_unref (printer);
 }
 
 /* ------------------------------------------------------------------ */

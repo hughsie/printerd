@@ -47,6 +47,7 @@ typedef enum
 GType		 pd_job_impl_get_type		(void) G_GNUC_CONST;
 void		 pd_job_impl_set_engine		(PdJobImpl *job,
 						 PdEngine *engine);
+void		 pd_job_impl_start_processing	(PdJobImpl *job);
 
 G_END_DECLS
 
