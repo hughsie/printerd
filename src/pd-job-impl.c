@@ -51,6 +51,7 @@ struct _PdJobImpl
 	PdJobSkeleton	 parent_instance;
 	gchar		*name;
 	GHashTable	*attributes;
+	GHashTable	*state_reasons;
 	gint		 document_fd;
 	gchar		*document_filename;
 };
@@ -65,6 +66,7 @@ enum
 	PROP_0,
 	PROP_NAME,
 	PROP_ATTRIBUTES,
+	PROP_STATE_REASONS,
 };
 
 static void pd_job_iface_init (PdJobIface *iface);
@@ -86,6 +88,7 @@ pd_job_impl_finalize (GObject *object)
 		g_free (job->document_filename);
 	}
 	g_hash_table_unref (job->attributes);
+	g_hash_table_unref (job->state_reasons);
 	G_OBJECT_CLASS (pd_job_impl_parent_class)->finalize (object);
 }
 
@@ -116,6 +119,10 @@ pd_job_impl_get_property (GObject *object,
 
 		g_value_set_variant (value, g_variant_builder_end (&builder));
 		break;
+	case PROP_STATE_REASONS:
+		g_value_set_boxed (value,
+				   g_hash_table_get_keys (job->state_reasons));
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -132,6 +139,8 @@ pd_job_impl_set_property (GObject *object,
 	GVariantIter iter;
 	gchar *dkey;
 	GVariant *dvalue;
+	const gchar **state_reasons;
+	const gchar **state_reason;
 
 	switch (prop_id) {
 	case PROP_NAME:
@@ -143,6 +152,16 @@ pd_job_impl_set_property (GObject *object,
 		g_variant_iter_init (&iter, g_value_get_variant (value));
 		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
 			g_hash_table_insert (job->attributes, dkey, dvalue);
+		break;
+	case PROP_STATE_REASONS:
+		state_reasons = g_value_get_boxed (value);
+		g_hash_table_remove_all (job->state_reasons);
+		for (state_reason = state_reasons;
+		     *state_reason;
+		     state_reason++) {
+			gchar *r = g_strdup (*state_reason);
+			g_hash_table_insert (job->state_reasons, r, r);
+		}
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -161,6 +180,13 @@ pd_job_impl_init (PdJobImpl *job)
 						 g_str_equal,
 						 g_free,
 						 (GDestroyNotify) g_variant_unref);
+
+	job->state_reasons = g_hash_table_new_full (g_str_hash,
+						    g_str_equal,
+						    g_free,
+						    NULL);
+	gchar *incoming = g_strdup ("job-incoming");
+	g_hash_table_insert (job->state_reasons, incoming, incoming);
 
 	pd_job_set_state (PD_JOB (job),
 			  PD_JOB_STATE_PENDING_HELD);
@@ -202,6 +228,19 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							       G_VARIANT_TYPE ("a{sv}"),
 							       NULL,
 							       G_PARAM_READWRITE));
+
+	/**
+	 * PdJobImpl:state-reasons:
+	 *
+	 * The job's state reasons.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_STATE_REASONS,
+					 g_param_spec_boxed ("state-reasons",
+							     "State reasons",
+							     "The job's state reasons",
+							     G_TYPE_STRV,
+							     G_PARAM_READWRITE));
 }
 
 /* ------------------------------------------------------------------ */
@@ -336,8 +375,15 @@ pd_job_impl_start (PdJob *_job,
 		}
 	}
 
+	/* Move the job state to pending */
 	pd_job_set_state (PD_JOB (job),
 			  PD_JOB_STATE_PENDING);
+
+	/* Job is no longer incoming so remove that state reason if
+	   present */
+	g_hash_table_remove (job->state_reasons, "job-incoming");
+
+	/* Return success */
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_new ("()"));
 
