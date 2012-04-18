@@ -280,6 +280,69 @@ print_files (const char *printer_id,
 	return ret;
 }
 
+static gint
+create_printer_from_device (const gchar *name,
+			    const gchar *device)
+{
+	GError *error = NULL;
+	gint ret = 1;
+	gchar *device_path = NULL;
+	gchar *printer_path = NULL;
+	PdDevice *pd_device = NULL;
+	GVariantBuilder options, defaults;
+
+	device_path = g_strdup_printf ("/org/freedesktop/printerd/device/%s",
+				       device);
+	pd_device = pd_device_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+						      G_DBUS_PROXY_FLAGS_NONE,
+						      "org.freedesktop.printerd",
+						      device_path,
+						      NULL,
+						      &error);
+	if (!pd_device) {
+		g_printerr ("Error getting device: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	g_variant_builder_init (&options, G_VARIANT_TYPE ("a{sv}"));
+	g_variant_builder_init (&defaults, G_VARIANT_TYPE ("a{sv}"));
+	if (!pd_device_call_create_printer_sync (pd_device,
+						 g_variant_builder_end (&options),
+						 name,
+						 "" /* description */,
+						 "" /* location */,
+						 g_variant_builder_end (&defaults),
+						 &printer_path,
+						 NULL,
+						 &error)) {
+		g_printerr ("Error creating printer: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	g_debug ("Printer path is %s\n", printer_path);
+	ret = 0;
+ out:
+	if (pd_device)
+		g_object_unref (pd_device);
+	g_free (device_path);
+	g_free (printer_path);
+	return ret;
+}
+
+static gint
+create_printer (const gchar *name,
+		const gchar *device_uri)
+{
+	/* Have we got a device URI? */
+	if (!strchr (device_uri, '/'))
+		return create_printer_from_device (name, device_uri);
+
+	g_printerr ("Create printer from device URI: not implemented\n");
+	return 1;
+}
+
 int
 main (int argc, char **argv)
 {
@@ -304,7 +367,8 @@ main (int argc, char **argv)
 	g_option_context_set_summary (opt_context,
 				      "Commands:\n"
 				      "  get-printers\n"
-				      "  get-devices\n");
+				      "  get-devices\n"
+				      "  create-printer <name> <device|URI>\n");
 	g_option_context_add_main_entries (opt_context, opt_entries, NULL);
 	if (!g_option_context_parse (opt_context, &argc, &argv, &error)) {
 		g_printerr ("Error parsing options: %s\n", error->message);
@@ -348,13 +412,48 @@ main (int argc, char **argv)
 		goto out;
 	}
 
-	if (!strcmp (argv[1], "get-printers"))
+	if (!strcmp (argv[1], "get-printers")) {
+		if (argc != 2) {
+			g_print ("%s",
+				 g_option_context_get_help (opt_context,
+							    TRUE,
+							    NULL));
+			goto out;
+		}
+
 		ret = get_printers (pd_manager);
-	else if (!strcmp (argv[1], "get-devices"))
+	} else if (!strcmp (argv[1], "get-devices")) {
+		if (argc != 2) {
+			g_print ("%s",
+				 g_option_context_get_help (opt_context,
+							    TRUE,
+							    NULL));
+			goto out;
+		}
+
 		ret = get_devices (pd_manager);
-	else if (!strcmp (argv[1], "print-files"))
+	} else if (!strcmp (argv[1], "print-files")) {
+		if (argc < 4) {
+			g_print ("%s",
+				 g_option_context_get_help (opt_context,
+							    TRUE,
+							    NULL));
+			goto out;
+		}
+
 		ret = print_files (argv[2], argv + 3);
-	else
+	} else if (!strcmp (argv[1], "create-printer")) {
+		if (argc != 4) {
+			g_print ("%s",
+				 g_option_context_get_help (opt_context,
+							    TRUE,
+							    NULL));
+			goto out;
+		}
+
+		ret = create_printer ((const gchar *) argv[2],
+				      (const gchar *) argv[3]);
+	} else
 		fprintf (stderr, "Unrecognized command '%s'\n", argv[1]);
 
  out:
