@@ -54,6 +54,7 @@ struct _PdPrinterImpl
 	gchar			*ieee1284_id;
 	GHashTable		*defaults;
 	GHashTable		*supported;
+	GHashTable		*state_reasons;	/* set, i.e. key==value */
 
 	gchar			*id;
 };
@@ -72,6 +73,7 @@ enum
 	PROP_IEEE1284_ID,
 	PROP_DEFAULTS,
 	PROP_SUPPORTED,
+	PROP_STATE_REASONS,
 };
 
 static void pd_printer_iface_init (PdPrinterIface *iface);
@@ -92,6 +94,7 @@ pd_printer_impl_finalize (GObject *object)
 	g_free (printer->ieee1284_id);
 	g_hash_table_unref (printer->defaults);
 	g_hash_table_unref (printer->supported);
+	g_hash_table_unref (printer->state_reasons);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -144,6 +147,10 @@ pd_printer_impl_get_property (GObject *object,
 
 		g_value_set_variant (value, g_variant_builder_end (&builder));
 		break;
+	case PROP_STATE_REASONS:
+		g_value_set_boxed (value,
+				   g_hash_table_get_keys (printer->state_reasons));
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -160,6 +167,8 @@ pd_printer_impl_set_property (GObject *object,
 	GVariantIter iter;
 	gchar *dkey;
 	GVariant *dvalue;
+	const gchar **state_reasons;
+	const gchar **state_reason;
 
 	switch (prop_id) {
 	case PROP_NAME:
@@ -182,13 +191,27 @@ pd_printer_impl_set_property (GObject *object,
 		g_hash_table_remove_all (printer->defaults);
 		g_variant_iter_init (&iter, g_value_get_variant (value));
 		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-			g_hash_table_insert (printer->defaults, dkey, dvalue);
+			g_hash_table_insert (printer->defaults,
+					     g_strdup (dkey),
+					     g_variant_ref (dvalue));
 		break;
 	case PROP_SUPPORTED:
 		g_hash_table_remove_all (printer->supported);
 		g_variant_iter_init (&iter, g_value_get_variant (value));
 		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-			g_hash_table_insert (printer->supported, dkey, dvalue);
+			g_hash_table_insert (printer->supported,
+					     g_strdup (dkey),
+					     g_variant_ref (dvalue));
+		break;
+	case PROP_STATE_REASONS:
+		state_reasons = g_value_get_boxed (value);
+		g_hash_table_remove_all (printer->state_reasons);
+		for (state_reason = state_reasons;
+		     *state_reason;
+		     state_reason++) {
+			gchar *r = g_strdup (*state_reason);
+			g_hash_table_insert (printer->state_reasons, r, r);
+		}
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -242,6 +265,14 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 	g_hash_table_insert (printer->supported,
 			     g_strdup ("document-format"),
 			     g_variant_builder_end (&builder));
+
+	/* State reasons */
+	printer->state_reasons = g_hash_table_new_full (g_str_hash,
+							g_str_equal,
+							g_free,
+							NULL);
+	gchar *paused = g_strdup ("paused");
+	g_hash_table_insert (printer->state_reasons, paused, paused);
 }
 
 static void
@@ -333,6 +364,19 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							       G_VARIANT_TYPE ("a{sv}"),
 							       NULL,
 							       G_PARAM_READWRITE));
+
+	/**
+	 * PdPrinterImpl:state-reasons:
+	 *
+	 * The queue's state reasons.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_STATE_REASONS,
+					 g_param_spec_boxed ("state-reasons",
+							     "State reasons",
+							     "The queue's state reasons",
+							     G_TYPE_STRV,
+							     G_PARAM_READWRITE));
 }
 
 const gchar *
