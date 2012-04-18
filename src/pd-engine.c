@@ -116,7 +116,15 @@ static void
 pd_engine_device_remove (PdEngine *engine,
 			 PdDevice *device)
 {
-	g_debug ("remove device");
+	PdDaemon *daemon;
+	gchar *object_path = NULL;
+	daemon = pd_engine_get_daemon (engine);
+	object_path = g_strdup_printf ("/org/freedesktop/printerd/device/%s",
+				       pd_device_impl_get_id (PD_DEVICE_IMPL (device)));
+	g_debug ("remove device %s", object_path);
+	g_dbus_object_manager_server_unexport (pd_daemon_get_object_manager (daemon),
+					       object_path);
+	g_free (object_path);
 }
 
 static PdDevice *
