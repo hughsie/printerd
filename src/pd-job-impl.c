@@ -290,6 +290,16 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		g_object_unref (printer);
 }
 
+void
+pd_job_impl_set_attribute (PdJobImpl *job,
+			   const gchar *name,
+			   GVariant *value)
+{
+	g_hash_table_insert (job->attributes,
+			     g_strdup (name),
+			     g_variant_ref_sink (value));
+}
+
 /* ------------------------------------------------------------------ */
 
 /* runs in thread dedicated to handling @invocation */
