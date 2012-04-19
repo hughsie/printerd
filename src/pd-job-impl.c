@@ -21,6 +21,8 @@
 #include "config.h"
 
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <gio/gunixfdlist.h>
@@ -57,6 +59,9 @@ struct _PdJobImpl
 	GHashTable	*state_reasons;
 	gint		 document_fd;
 	gchar		*document_filename;
+	GPid		 backend_pid;
+	guint		 backend_watch_source;
+	guint		 backend_io_source;
 };
 
 struct _PdJobImplClass
@@ -93,6 +98,10 @@ pd_job_impl_finalize (GObject *object)
 	}
 	g_hash_table_unref (job->attributes);
 	g_hash_table_unref (job->state_reasons);
+	if (job->backend_pid != -1)
+		g_spawn_close_pid (job->backend_pid);
+	if (job->backend_watch_source != 0)
+		g_source_remove (job->backend_watch_source);
 	G_OBJECT_CLASS (pd_job_impl_parent_class)->finalize (object);
 }
 
@@ -180,6 +189,7 @@ pd_job_impl_init (PdJobImpl *job)
 					     G_DBUS_INTERFACE_SKELETON_FLAGS_HANDLE_METHOD_INVOCATIONS_IN_THREAD);
 
 	job->document_fd = -1;
+	job->backend_pid = -1;
 	job->attributes = g_hash_table_new_full (g_str_hash,
 						 g_str_equal,
 						 g_free,
@@ -254,6 +264,72 @@ pd_job_impl_set_engine (PdJobImpl *job,
 	job->engine = engine;
 }
 
+static void
+pd_job_impl_backend_watch_cb (GPid pid,
+			      gint status,
+			      gpointer user_data)
+{
+	PdJobImpl *job = PD_JOB_IMPL (user_data);
+	g_spawn_close_pid (pid);
+	job->backend_pid = -1;
+	g_debug ("Backend finished with status %d", WEXITSTATUS (status));
+
+	if (WEXITSTATUS (status) == 0) {
+		g_debug ("-> Set job state to completed");
+		pd_job_set_state (PD_JOB (job),
+				  PD_JOB_STATE_COMPLETED);
+	} else {
+		g_debug ("-> Set job state to aborted");
+		pd_job_set_state (PD_JOB (job),
+				  PD_JOB_STATE_ABORTED);
+	}
+}
+
+static gboolean
+pd_job_impl_backend_io_cb (GIOChannel *channel,
+			   GIOCondition condition,
+			   gpointer which)
+{
+	GError *error = NULL;
+	GIOStatus status;
+	gchar buffer[1024];
+	gsize got;
+
+	if (which == stdout) {
+		g_debug ("Backend stdout output:");
+	} else {
+		/* Shouldn't get here! */
+		g_assert_not_reached ();
+	}
+
+	g_assert (condition == G_IO_IN);
+
+	status = g_io_channel_read_chars (channel,
+					  buffer,
+					  sizeof (buffer) - 1,
+					  &got,
+					  &error);
+	switch (status) {
+	case G_IO_STATUS_ERROR:
+		g_warning ("Error reading from channel: %s", error->message);
+		g_error_free (error);
+		goto out;
+	case G_IO_STATUS_EOF:
+		g_debug ("Backend output finished");
+		break;
+	case G_IO_STATUS_AGAIN:
+		g_debug ("Resource temporarily unavailable (weird?)");
+		break;
+	case G_IO_STATUS_NORMAL:
+		break;
+	}
+
+	buffer[sizeof (buffer) - 1] = '\0';
+	g_debug ("%s", g_strchomp (buffer));
+ out:
+	return TRUE; /* don't remove this source */
+}
+
 /**
  * pd_job_impl_start_processing:
  * @job: A #PdJobImpl
@@ -264,9 +340,18 @@ pd_job_impl_set_engine (PdJobImpl *job,
 void
 pd_job_impl_start_processing (PdJobImpl *job)
 {
+	GError *error = NULL;
 	const gchar *printer_path;
 	const gchar *uri;
+	gchar *username;
+	GVariant *variant;
 	PdPrinter *printer = NULL;
+	char *scheme = NULL;
+	char **argv = NULL;
+	char **envp = NULL;
+	gchar **s;
+	gint stdin_fd, stdout_fd, stderr_fd;
+	GIOChannel *stdout_channel = NULL;
 
 	g_debug ("Starting to process job %u", pd_job_get_id (PD_JOB (job)));
 
@@ -277,17 +362,81 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	printer_path = pd_job_get_printer (PD_JOB (job));
 	printer = pd_engine_get_printer_by_path (job->engine, printer_path);
 	if (!printer) {
-		g_debug ("Incorrect printer path %s", printer_path);
+		g_warning ("Incorrect printer path %s", printer_path);
 		goto out;
 	}
 
 	uri = pd_printer_impl_get_uri (PD_PRINTER_IMPL (printer));
 	g_debug ("  Using device URI %s", uri);
 	pd_job_set_device_uri (PD_JOB (job), uri);
+	scheme = g_uri_parse_scheme (uri);
 
+	variant = g_hash_table_lookup (job->attributes,
+				       "job-originating-user-name");
+	if (variant) {
+		username = g_variant_dup_string (variant, NULL);
+		/* no need to free variant: we don't own a reference */
+	} else
+		username = g_strdup ("unknown");
+
+	argv = g_malloc0 (sizeof (char *) * 8);
+	argv[0] = g_strdup_printf ("/usr/lib/cups/backend/%s", scheme);
+	/* URI */
+	argv[1] = g_strdup (uri);
+	/* Job ID */
+	argv[2] = g_strdup_printf ("%u", pd_job_get_id (PD_JOB (job)));
+	/* User name */
+	argv[3] = username;
+	/* Job title */
+	argv[4] = g_strdup_printf ("job %u", pd_job_get_id (PD_JOB (job)));
+	/* Copies */
+	argv[5] = g_strdup ("1");
+	/* Options */
+	argv[6] = g_strdup ("");
+	argv[7] = NULL;
+
+	envp = g_malloc0 (sizeof (char *) * 2);
+	envp[0] = g_strdup_printf ("DEVICE_URI=%s", uri);
+	envp[1] = NULL;
+
+	g_debug ("  Executing %s", argv[0]);
+	for (s = envp; *s; s++)
+		g_debug ("    Env: %s", *s);
+	for (s = argv + 1; *s; s++)
+		g_debug ("    Arg: %s", *s);
+	if (!g_spawn_async_with_pipes ("/" /* wd */,
+				       argv,
+				       envp,
+				       G_SPAWN_DO_NOT_REAP_CHILD |
+				       G_SPAWN_FILE_AND_ARGV_ZERO,
+				       NULL /* child setup */,
+				       NULL /* user data */,
+				       &job->backend_pid,
+				       &stdin_fd,
+				       &stdout_fd,
+				       &stderr_fd,
+				       &error)) {
+		g_warning ("Failed to start backend: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	job->backend_watch_source = g_child_watch_add (job->backend_pid,
+						       pd_job_impl_backend_watch_cb,
+						       job);
+	stdout_channel = g_io_channel_unix_new (stdout_fd);
+	job->backend_io_source = g_io_add_watch (stdout_channel,
+						 G_IO_IN,
+						 pd_job_impl_backend_io_cb,
+						 stdout);
  out:
+	if (stdout_channel)
+		g_io_channel_unref (stdout_channel);
+	g_strfreev (argv);
+	g_strfreev (envp);
 	if (printer)
 		g_object_unref (printer);
+	g_free (scheme);
 }
 
 void
