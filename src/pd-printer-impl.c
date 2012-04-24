@@ -547,6 +547,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	GVariantIter iter_supplied;
 	gchar *dkey;
 	GVariant *dvalue;
+	const gchar *sender;
 
 	g_debug ("Creating job for printer %s", printer->id);
 
@@ -585,6 +586,13 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				 printer_path,
 				 name,
 				 g_variant_builder_end (&builder));
+
+	/* Set job-originating-user-name */
+	sender = g_dbus_method_invocation_get_sender (invocation);
+	pd_job_impl_set_attribute (PD_JOB_IMPL (job),
+				   "job-originating-user-name",
+				   g_variant_new_string (sender));
+
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       pd_job_get_id (job));
 	g_debug ("Created job path is %s", object_path);
