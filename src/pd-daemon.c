@@ -280,3 +280,71 @@ pd_daemon_get_engine (PdDaemon *daemon)
 	g_return_val_if_fail (PD_IS_DAEMON (daemon), NULL);
 	return daemon->engine;
 }
+
+/**
+ * pd_daemon_check_authorization_sync:
+ * @daemon: A #PdDaemon.
+ * @action_id: The action ID to check against.
+ * @options: Variant representing options.
+ * @description: Description text for the action.
+ * @invociation: A #GDBusMethodInvocation.
+ *
+ * Checks authorization using polkit.
+ *
+ * Returns: True if the subject is authorized.
+ */
+gboolean
+pd_daemon_check_authorization_sync (PdDaemon *daemon,
+				    const gchar *action_id,
+				    GVariant *options,
+				    const gchar *message,
+				    GDBusMethodInvocation *invocation)
+{
+	gboolean ret = FALSE;
+	GError *error = NULL;
+	const gchar *sender;
+	PolkitSubject *subject;
+	PolkitCheckAuthorizationFlags flags;
+	PolkitAuthorizationResult *result;
+
+	sender = g_dbus_method_invocation_get_sender (invocation);
+	subject = polkit_system_bus_name_new (sender);
+	flags = POLKIT_CHECK_AUTHORIZATION_FLAGS_ALLOW_USER_INTERACTION;
+
+	g_debug ("Checking authorization of %s for %s", sender, action_id);
+	result = polkit_authority_check_authorization_sync (daemon->authority,
+							    subject,
+							    action_id,
+							    NULL,
+							    flags,
+							    NULL,
+							    &error);
+	g_object_unref (subject);
+	if (error) {
+		g_warning ("Checking authorization: %s", error->message);
+		g_dbus_method_invocation_return_gerror (invocation,
+							error);
+		g_error_free (error);
+		goto out;
+	}
+
+	if (result == NULL ||
+	    !polkit_authorization_result_get_is_authorized (result)) {
+		g_debug ("%s not authorized to add printer", sender);
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       message);
+		goto out;
+	}
+
+	/* Authorized */
+	g_debug ("Authorized");
+	ret = TRUE;
+
+ out:
+	if (result)
+		g_object_unref (result);
+
+	return ret;
+}

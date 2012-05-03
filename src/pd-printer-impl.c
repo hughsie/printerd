@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include <glib.h>
+#include <glib/gi18n.h>
 
 #include "pd-printer-impl.h"
 #include "pd-daemon.h"
@@ -613,9 +614,16 @@ pd_printer_impl_create_job (PdPrinter *_printer,
 			    const gchar *name,
 			    GVariant *attributes)
 {
+	PdPrinterImpl *printer = PD_PRINTER_IMPL (_printer);
+	PdDaemon *daemon = PD_DAEMON (pd_engine_get_daemon (printer->engine));
+
 	/* Check if the user is authorized to create a job */
-	//if (!pd_daemon_util_check_authorization_sync ())
-	//	goto out;
+	if (!pd_daemon_check_authorization_sync (daemon,
+						 "org.freedesktop.printerd.job-add",
+						 options,
+						 N_("Authentication is required to add a job"),
+						 invocation))
+		goto out;
 
 	pd_printer_impl_complete_create_job (_printer,
 					     invocation,
@@ -623,7 +631,7 @@ pd_printer_impl_create_job (PdPrinter *_printer,
 					     name,
 					     attributes);
 
-	//out:
+ out:
 	return TRUE; /* handled the method invocation */
 }
 

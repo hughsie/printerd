@@ -254,7 +254,7 @@ pd_manager_impl_add_printer (PdManager *_manager,
 	/* Check if the user is authorized to create a loop device */
 //	if (!pd_daemon_util_check_authorization_sync (manager->daemon,
 //							NULL,
-//							"org.freedesktop.printerd.add-printer",
+//							"org.freedesktop.printerd.printer-add",
 //							options,
 //							N_("Authentication is required to add a printer"),
 //							invocation))

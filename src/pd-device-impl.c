@@ -21,10 +21,12 @@
 #include "config.h"
 
 #include <glib.h>
+#include <glib/gi18n.h>
 
 #include "pd-common.h"
 #include "pd-device-impl.h"
 #include "pd-printer-impl.h"
+#include "pd-daemon.h"
 #include "pd-engine.h"
 
 /**
@@ -259,9 +261,16 @@ pd_device_impl_create_printer (PdDevice *_device,
 			       const gchar *location,
 			       GVariant *defaults)
 {
+	PdDeviceImpl *device = PD_DEVICE_IMPL (_device);
+	PdDaemon *daemon = PD_DAEMON (pd_engine_get_daemon (device->engine));
+
 	/* Check if the user is authorized to create a printer */
-	//if (!pd_daemon_util_check_authorization_sync ())
-	//	goto out;
+	if (!pd_daemon_check_authorization_sync (daemon,
+						 "org.freedesktop.printerd.printer-add",
+						 options,
+						 N_("Authentication is required to add a printer"),
+						 invocation))
+		goto out;
 
 	pd_device_impl_complete_create_printer (_device,
 						invocation,
@@ -271,7 +280,7 @@ pd_device_impl_create_printer (PdDevice *_device,
 						location,
 						defaults);
 
-	// out:
+ out:
 	return TRUE; /* handled the method invocation */
 }
 
