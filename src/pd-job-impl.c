@@ -29,6 +29,7 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 
+#include "pd-daemon.h"
 #include "pd-engine.h"
 #include "pd-job-impl.h"
 #include "pd-printer-impl.h"
@@ -53,7 +54,7 @@ typedef struct _PdJobImplClass	PdJobImplClass;
 struct _PdJobImpl
 {
 	PdJobSkeleton	 parent_instance;
-	PdEngine	*engine;
+	PdDaemon	*daemon;
 	gchar		*name;
 	GHashTable	*attributes;
 	GHashTable	*state_reasons;
@@ -72,6 +73,7 @@ struct _PdJobImplClass
 enum
 {
 	PROP_0,
+	PROP_DAEMON,
 	PROP_NAME,
 	PROP_ATTRIBUTES,
 	PROP_STATE_REASONS,
@@ -88,7 +90,7 @@ static void
 pd_job_impl_finalize (GObject *object)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
-	/* note: we don't hold a reference to device->engine */
+	/* note: we don't hold a reference to job->daemon */
 	g_free (job->name);
 	if (job->document_fd != -1)
 		close (job->document_fd);
@@ -118,6 +120,9 @@ pd_job_impl_get_property (GObject *object,
 	GVariant *dvalue;
 
 	switch (prop_id) {
+	case PROP_DAEMON:
+		g_value_set_object (value, job->daemon);
+		break;
 	case PROP_NAME:
 		g_value_set_string (value, job->name);
 		break;
@@ -156,6 +161,11 @@ pd_job_impl_set_property (GObject *object,
 	const gchar **state_reason;
 
 	switch (prop_id) {
+	case PROP_DAEMON:
+		g_assert (job->daemon == NULL);
+		/* we don't take a reference to the daemon */
+		job->daemon = g_value_get_object (value);
+		break;
 	case PROP_NAME:
 		g_free (job->name);
 		job->name = g_value_dup_string (value);
@@ -217,6 +227,22 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 	gobject_class->get_property = pd_job_impl_get_property;
 
 	/**
+	 * PdPrinterImpl:daemon:
+	 *
+	 * The #PdDaemon the printer is for.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_DAEMON,
+					 g_param_spec_object ("daemon",
+							      "Daemon",
+							      "The daemon the engine is for",
+							      PD_TYPE_DAEMON,
+							      G_PARAM_READABLE |
+							      G_PARAM_WRITABLE |
+							      G_PARAM_CONSTRUCT_ONLY |
+							      G_PARAM_STATIC_STRINGS));
+
+	/**
 	 * PdJobImpl:name:
 	 *
 	 * The name for the job.
@@ -257,11 +283,19 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							     G_PARAM_READWRITE));
 }
 
-void
-pd_job_impl_set_engine (PdJobImpl *job,
-			PdEngine *engine)
+/**
+ * pd_job_impl_get_daemon:
+ * @job: A #PdJobImpl.
+ *
+ * Gets the daemon used by @job.
+ *
+ * Returns: A #PdDaemon. Do not free, the object is owned by @job.
+ */
+PdDaemon *
+pd_job_impl_get_daemon (PdJobImpl *job)
 {
-	job->engine = engine;
+	g_return_val_if_fail (PD_IS_JOB_IMPL (job), NULL);
+	return job->daemon;
 }
 
 static void
@@ -360,7 +394,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	/* Get the device URI to use from the Printer */
 	printer_path = pd_job_get_printer (PD_JOB (job));
-	printer = pd_engine_get_printer_by_path (job->engine, printer_path);
+	printer = pd_engine_get_printer_by_path (pd_daemon_get_engine (job->daemon),
+						 printer_path);
 	if (!printer) {
 		g_warning ("Incorrect printer path %s", printer_path);
 		goto out;
@@ -594,7 +629,7 @@ pd_job_impl_start (PdJob *_job,
 	g_hash_table_remove (job->state_reasons, "job-incoming");
 
 	/* Start processing it if possible */
-	pd_engine_start_jobs (job->engine);
+	pd_engine_start_jobs (pd_daemon_get_engine (job->daemon));
 
 	/* Return success */
 	g_dbus_method_invocation_return_value (invocation,

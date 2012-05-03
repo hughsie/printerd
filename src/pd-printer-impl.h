@@ -41,8 +41,7 @@ typedef enum
 } pd_printer_state_t;
 
 GType		 pd_printer_impl_get_type	(void) G_GNUC_CONST;
-void		 pd_printer_impl_set_engine	(PdPrinterImpl	*printer,
-						 PdEngine	*engine);
+PdDaemon	*pd_printer_impl_get_daemon	(PdPrinterImpl	*printer);
 const gchar	*pd_printer_impl_get_id		(PdPrinterImpl	*printer);
 void		 pd_printer_impl_set_id		(PdPrinterImpl	*printer,
 						 const gchar	*id);

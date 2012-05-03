@@ -49,7 +49,7 @@ typedef struct _PdDeviceImplClass	PdDeviceImplClass;
 struct _PdDeviceImpl
 {
 	PdDeviceSkeleton	 parent_instance;
-	PdEngine		*engine;
+	PdDaemon		*daemon;
 	gchar			*sysfs_path;
 	gchar			*id;
 };
@@ -62,6 +62,7 @@ struct _PdDeviceImplClass
 enum
 {
 	PROP_0,
+	PROP_DAEMON,
 	PROP_SYSFS_PATH
 };
 
@@ -76,7 +77,7 @@ static void
 pd_device_impl_finalize (GObject *object)
 {
 	PdDeviceImpl *device = PD_DEVICE_IMPL (object);
-	/* note: we don't hold a reference to device->engine */
+	/* note: we don't hold a reference to device->daemon */
 	g_free (device->sysfs_path);
 	g_free (device->id);
 	G_OBJECT_CLASS (pd_device_impl_parent_class)->finalize (object);
@@ -91,6 +92,9 @@ pd_device_impl_get_property (GObject *object,
 	PdDeviceImpl *device = PD_DEVICE_IMPL (object);
 
 	switch (prop_id) {
+	case PROP_DAEMON:
+		g_value_set_object (value, pd_device_impl_get_daemon (device));
+		break;
 	case PROP_SYSFS_PATH:
 		g_value_set_string (value, device->sysfs_path);
 		break;
@@ -109,6 +113,11 @@ pd_device_impl_set_property (GObject *object,
 	PdDeviceImpl *device = PD_DEVICE_IMPL (object);
 
 	switch (prop_id) {
+	case PROP_DAEMON:
+		g_assert (device->daemon == NULL);
+		/* we don't take a reference to the daemon */
+		device->daemon = g_value_get_object (value);
+		break;
 	case PROP_SYSFS_PATH:
 		g_assert (device->sysfs_path == NULL);
 		/* we don't take a reference to the sysfs_path */
@@ -138,6 +147,22 @@ pd_device_impl_class_init (PdDeviceImplClass *klass)
 	gobject_class->get_property = pd_device_impl_get_property;
 
 	/**
+	 * PdPrinterImpl:daemon:
+	 *
+	 * The #PdDaemon the printer is for.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_DAEMON,
+					 g_param_spec_object ("daemon",
+							      "Daemon",
+							      "The daemon the engine is for",
+							      PD_TYPE_DAEMON,
+							      G_PARAM_READABLE |
+							      G_PARAM_WRITABLE |
+							      G_PARAM_CONSTRUCT_ONLY |
+							      G_PARAM_STATIC_STRINGS));
+
+	/**
 	 * PdDeviceImpl:sysfs_path:
 	 *
 	 * The sysfs path for the object.
@@ -151,11 +176,19 @@ pd_device_impl_class_init (PdDeviceImplClass *klass)
 							      G_PARAM_READWRITE));
 }
 
-void
-pd_device_impl_set_engine (PdDeviceImpl *device,
-			   PdEngine *engine)
+/**
+ * pd_device_impl_get_daemon:
+ * @device: A #PdDeviceImpl.
+ *
+ * Gets the daemon used by @device.
+ *
+ * Returns: A #PdDaemon. Do not free, the object is owned by @device.
+ */
+PdDaemon *
+pd_device_impl_get_daemon (PdDeviceImpl *device)
 {
-	device->engine = engine;
+	g_return_val_if_fail (PD_IS_DEVICE_IMPL (device), NULL);
+	return device->daemon;
 }
 
 const gchar *
@@ -227,7 +260,7 @@ pd_device_impl_complete_create_printer (PdDevice *_device,
 
 	g_debug ("Creating printer from device %s", device->id);
 
-	printer = pd_engine_add_printer (device->engine,
+	printer = pd_engine_add_printer (pd_daemon_get_engine (device->daemon),
 					 name, description, location,
 					 ieee1284_id);
 
@@ -262,10 +295,9 @@ pd_device_impl_create_printer (PdDevice *_device,
 			       GVariant *defaults)
 {
 	PdDeviceImpl *device = PD_DEVICE_IMPL (_device);
-	PdDaemon *daemon = PD_DAEMON (pd_engine_get_daemon (device->engine));
 
 	/* Check if the user is authorized to create a printer */
-	if (!pd_daemon_check_authorization_sync (daemon,
+	if (!pd_daemon_check_authorization_sync (device->daemon,
 						 "org.freedesktop.printerd.printer-add",
 						 options,
 						 N_("Authentication is required to add a printer"),

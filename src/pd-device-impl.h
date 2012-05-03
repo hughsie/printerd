@@ -30,8 +30,7 @@ G_BEGIN_DECLS
 #define PD_IS_DEVICE_IMPL(o)	(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_DEVICE_IMPL))
 
 GType		 pd_device_impl_get_type	(void) G_GNUC_CONST;
-void		 pd_device_impl_set_engine	(PdDeviceImpl	*device,
-						 PdEngine	*engine);
+PdDaemon	*pd_device_impl_get_daemon	(PdDeviceImpl	*device);
 const gchar	*pd_device_impl_get_id		(PdDeviceImpl	*device);
 
 G_END_DECLS

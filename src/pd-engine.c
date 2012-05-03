@@ -176,10 +176,12 @@ pd_engine_device_add (PdEngine *engine,
 		g_string_append_uri_escaped (uri, sn, NULL, FALSE);
 	}
 
+	daemon = pd_engine_get_daemon (engine);
 	description = g_string_new ("");
 	g_string_printf (description, "%s %s (USB)", mfg, mdl);
 
 	device = PD_DEVICE (g_object_new (PD_TYPE_DEVICE_IMPL,
+					  "daemon", daemon,
 					  "ieee1284-id", ieee1284_id,
 					  "uri", uri->str,
 					  "description", description->str,
@@ -187,11 +189,9 @@ pd_engine_device_add (PdEngine *engine,
 	g_debug ("add device %s [%s]", uri->str, ieee1284_id);
 
 	/* export on bus */
-	pd_device_impl_set_engine (PD_DEVICE_IMPL (device), engine);
 	id = pd_device_impl_get_id (PD_DEVICE_IMPL (device));
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/device/%s", id);
 	device_object = pd_object_skeleton_new (object_path);
-	daemon = pd_engine_get_daemon (engine);
 	pd_object_skeleton_set_device (device_object, device);
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (device_object));
@@ -388,7 +388,9 @@ pd_engine_add_printer	(PdEngine *engine,
 
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 
+	daemon = pd_engine_get_daemon (engine);
 	printer = PD_PRINTER (g_object_new (PD_TYPE_PRINTER_IMPL,
+					    "daemon", daemon,
 					    "name", name,
 					    "description", description,
 					    "location", location,
@@ -424,11 +426,9 @@ pd_engine_add_printer	(PdEngine *engine,
 	g_debug ("add printer %s", objid->str);
 
 	/* export on bus */
-	pd_printer_impl_set_engine (PD_PRINTER_IMPL (printer), engine);
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
 				       objid->str);
 	printer_object = pd_object_skeleton_new (object_path);
-	daemon = pd_engine_get_daemon (engine);
 	pd_object_skeleton_set_printer (printer_object, printer);
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (printer_object));
@@ -481,9 +481,11 @@ pd_engine_add_job	(PdEngine *engine,
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 
 	/* create the job */
+	daemon = pd_engine_get_daemon (engine);
 	job_id = engine->priv->next_job_id;
 	engine->priv->next_job_id++;
 	job = PD_JOB (g_object_new (PD_TYPE_JOB_IMPL,
+				    "daemon", daemon,
 				    "id", job_id,
 				    "name", name,
 				    "attributes", attributes,
@@ -491,14 +493,11 @@ pd_engine_add_job	(PdEngine *engine,
 				    NULL));
 
 
-	pd_job_impl_set_engine (PD_JOB_IMPL (job), engine);
-
 	/* export on bus */
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       job_id);
 	g_debug ("New job path is %s", object_path);
 	job_object = pd_object_skeleton_new (object_path);
-	daemon = pd_engine_get_daemon (engine);
 	pd_object_skeleton_set_job (job_object, job);
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (job_object));

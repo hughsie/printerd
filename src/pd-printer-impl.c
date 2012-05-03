@@ -48,7 +48,7 @@ typedef struct _PdPrinterImplClass	PdPrinterImplClass;
 struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
-	PdEngine		*engine;
+	PdDaemon		*daemon;
 	gchar			*name;
 	gchar			*description;
 	gchar			*location;
@@ -68,6 +68,7 @@ struct _PdPrinterImplClass
 enum
 {
 	PROP_0,
+	PROP_DAEMON,
 	PROP_NAME,
 	PROP_DESCRIPTION,
 	PROP_LOCATION,
@@ -88,7 +89,7 @@ static void
 pd_printer_impl_finalize (GObject *object)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
-	/* note: we don't hold a reference to device->engine */
+	/* note: we don't hold a reference to printer->daemon */
 	g_free (printer->name);
 	g_free (printer->description);
 	g_free (printer->location);
@@ -112,6 +113,9 @@ pd_printer_impl_get_property (GObject *object,
 	GVariant *dvalue;
 
 	switch (prop_id) {
+	case PROP_DAEMON:
+		g_value_set_object (value, pd_printer_impl_get_daemon (printer));
+		break;
 	case PROP_NAME:
 		g_value_set_string (value, printer->name);
 		break;
@@ -172,6 +176,11 @@ pd_printer_impl_set_property (GObject *object,
 	const gchar **state_reason;
 
 	switch (prop_id) {
+	case PROP_DAEMON:
+		g_assert (printer->daemon == NULL);
+		/* we don't take a reference to the daemon */
+		printer->daemon = g_value_get_object (value);
+		break;
 	case PROP_NAME:
 		g_free (printer->name);
 		printer->name = g_value_dup_string (value);
@@ -286,6 +295,22 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 	gobject_class->finalize = pd_printer_impl_finalize;
 	gobject_class->set_property = pd_printer_impl_set_property;
 	gobject_class->get_property = pd_printer_impl_get_property;
+
+	/**
+	 * PdPrinterImpl:daemon:
+	 *
+	 * The #PdDaemon the printer is for.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_DAEMON,
+					 g_param_spec_object ("daemon",
+							      "Daemon",
+							      "The daemon the engine is for",
+							      PD_TYPE_DAEMON,
+							      G_PARAM_READABLE |
+							      G_PARAM_WRITABLE |
+							      G_PARAM_CONSTRUCT_ONLY |
+							      G_PARAM_STATIC_STRINGS));
 
 	/**
 	 * PdPrinterImpl:name:
@@ -411,11 +436,19 @@ pd_printer_impl_set_id (PdPrinterImpl *printer,
 	printer->id = g_strdup (id);
 }
 
-void
-pd_printer_impl_set_engine (PdPrinterImpl *printer,
-			    PdEngine *engine)
+/**
+ * pd_printer_impl_get_daemon:
+ * @printer: A #PdPrinterImpl.
+ *
+ * Gets the daemon used by @printer.
+ *
+ * Returns: A #PdDaemon. Do not free, the object is owned by @printer.
+ */
+PdDaemon *
+pd_printer_impl_get_daemon (PdPrinterImpl *printer)
 {
-	printer->engine = engine;
+	g_return_val_if_fail (PD_IS_PRINTER_IMPL (printer), NULL);
+	return printer->daemon;
 }
 
 void
@@ -583,7 +616,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 
 	printer_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
 					printer->id);
-	job = pd_engine_add_job (printer->engine,
+	job = pd_engine_add_job (pd_daemon_get_engine (printer->daemon),
 				 printer_path,
 				 name,
 				 g_variant_builder_end (&builder));
@@ -615,10 +648,9 @@ pd_printer_impl_create_job (PdPrinter *_printer,
 			    GVariant *attributes)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (_printer);
-	PdDaemon *daemon = PD_DAEMON (pd_engine_get_daemon (printer->engine));
 
 	/* Check if the user is authorized to create a job */
-	if (!pd_daemon_check_authorization_sync (daemon,
+	if (!pd_daemon_check_authorization_sync (printer->daemon,
 						 "org.freedesktop.printerd.job-add",
 						 options,
 						 N_("Authentication is required to add a job"),
