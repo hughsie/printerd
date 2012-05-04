@@ -80,6 +80,7 @@ enum
 };
 
 static void pd_job_iface_init (PdJobIface *iface);
+static void pd_job_impl_job_state_notify (PdJobImpl *job);
 
 G_DEFINE_TYPE_WITH_CODE (PdJobImpl, pd_job_impl, PD_TYPE_JOB_SKELETON,
 			 G_IMPLEMENT_INTERFACE (PD_TYPE_JOB, pd_job_iface_init));
@@ -217,12 +218,26 @@ pd_job_impl_init (PdJobImpl *job)
 }
 
 static void
+pd_job_impl_constructed (GObject *object)
+{
+	PdJobImpl *job = PD_JOB_IMPL (object);
+
+	/* Watch our own state so we can start processing jobs when
+	   entering state PD_JOB_STATE_PROCESSING. */
+	g_signal_connect (job,
+			  "notify::state",
+			  G_CALLBACK (pd_job_impl_job_state_notify),
+			  job);
+}
+
+static void
 pd_job_impl_class_init (PdJobImplClass *klass)
 {
 	GObjectClass *gobject_class;
 
 	gobject_class = G_OBJECT_CLASS (klass);
 	gobject_class->finalize = pd_job_impl_finalize;
+	gobject_class->constructed = pd_job_impl_constructed;
 	gobject_class->set_property = pd_job_impl_set_property;
 	gobject_class->get_property = pd_job_impl_get_property;
 
@@ -368,10 +383,10 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
  * pd_job_impl_start_processing:
  * @job: A #PdJobImpl
  *
- * The job is available for processing and the printer is ready so
+ * The job state is processing and the printer is ready so
  * start processing the job.
  */
-void
+static void
 pd_job_impl_start_processing (PdJobImpl *job)
 {
 	GError *error = NULL;
@@ -386,6 +401,12 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	gchar **s;
 	gint stdin_fd, stdout_fd, stderr_fd;
 	GIOChannel *stdout_channel = NULL;
+
+	if (job->backend_pid != -1) {
+		g_warning ("Job %u already processing!",
+			   pd_job_get_id (PD_JOB (job)));
+		goto out;
+	}
 
 	g_debug ("Starting to process job %u", pd_job_get_id (PD_JOB (job)));
 
@@ -472,6 +493,14 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	if (printer)
 		g_object_unref (printer);
 	g_free (scheme);
+}
+
+static void
+pd_job_impl_job_state_notify (PdJobImpl *job)
+{
+	if (pd_job_get_state (PD_JOB (job)) == PD_JOB_STATE_PROCESSING &&
+	    job->backend_pid == -1)
+		pd_job_impl_start_processing (job);
 }
 
 void
@@ -627,9 +656,6 @@ pd_job_impl_start (PdJob *_job,
 	/* Job is no longer incoming so remove that state reason if
 	   present */
 	g_hash_table_remove (job->state_reasons, "job-incoming");
-
-	/* Start processing it if possible */
-	pd_engine_start_jobs (pd_daemon_get_engine (job->daemon));
 
 	/* Return success */
 	g_dbus_method_invocation_return_value (invocation,

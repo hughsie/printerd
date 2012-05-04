@@ -46,7 +46,6 @@ typedef enum
 
 GType		 pd_job_impl_get_type		(void) G_GNUC_CONST;
 PdDaemon	*pd_job_impl_get_daemon		(PdJobImpl *job);
-void		 pd_job_impl_start_processing	(PdJobImpl *job);
 void		 pd_job_impl_set_attribute	(PdJobImpl *job,
 						 const gchar *name,
 						 GVariant *value);

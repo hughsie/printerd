@@ -46,7 +46,6 @@ struct _PdEnginePrivate
 	GUdevClient	*gudev_client;
 	GHashTable	*path_to_device;
 	GHashTable	*id_to_printer;
-	GPtrArray	*jobs;
 	guint		 next_job_id;
 };
 
@@ -55,6 +54,8 @@ enum
 	PROP_0,
 	PROP_DAEMON
 };
+
+static void pd_engine_printer_state_notify (PdPrinter *printer);
 
 G_DEFINE_TYPE (PdEngine, pd_engine, G_TYPE_OBJECT);
 
@@ -66,7 +67,6 @@ pd_engine_finalize (GObject *object)
 	/* note: we don't hold a ref to engine->priv->daemon */
 	g_hash_table_unref (engine->priv->path_to_device);
 	g_hash_table_unref (engine->priv->id_to_printer);
-	g_ptr_array_free (engine->priv->jobs, TRUE);
 
 	if (G_OBJECT_CLASS (pd_engine_parent_class)->finalize != NULL)
 		G_OBJECT_CLASS (pd_engine_parent_class)->finalize (object);
@@ -264,8 +264,6 @@ pd_engine_init (PdEngine *engine)
 
 	engine->priv = G_TYPE_INSTANCE_GET_PRIVATE (engine, PD_TYPE_ENGINE, PdEnginePrivate);
 
-	engine->priv->jobs = g_ptr_array_new_full (0,
-						   (GDestroyNotify) g_object_unref);
 	engine->priv->next_job_id = 1;
 
 	/* get ourselves an udev client */
@@ -303,6 +301,51 @@ pd_engine_class_init (PdEngineClass *klass)
 							      G_PARAM_STATIC_STRINGS));
 
 	g_type_class_add_private (klass, sizeof (PdEnginePrivate));
+}
+
+/**
+ * pd_engine_job_state_notify:
+ * @job: A #PdJob.
+ *
+ * Examines a job to see if it can be moved from a pending state to a
+ * processing state, and moves it if so.
+ */
+static void
+pd_engine_job_state_notify	(PdJob *job)
+{
+	PdDaemon *daemon;
+	const gchar *printer_path;
+	PdObject *obj;
+	PdPrinter *printer;
+	guint job_state, printer_state;
+
+	g_return_if_fail (PD_IS_JOB (job));
+
+	job_state = pd_job_get_state (job);
+	g_debug ("Job %u changed state: %s",
+		 pd_job_get_id (job),
+		 pd_job_state_as_string (job_state));
+
+	daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
+	printer_path = pd_job_get_printer (job);
+	obj = pd_daemon_find_object (daemon, printer_path);
+	printer = pd_object_get_printer (obj);
+	printer_state = pd_printer_get_state (printer);
+
+	switch (job_state) {
+	case PD_JOB_STATE_PENDING:
+		/* This is a now candidate for processing. */
+
+		if (printer_state == PD_PRINTER_STATE_IDLE) {
+			g_debug ("Printer for job %u idle so starting job",
+				 pd_job_get_id (job));
+			pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
+		}
+
+		break;
+	default:
+		break;
+	}
 }
 
 /**
@@ -425,6 +468,12 @@ pd_engine_add_printer	(PdEngine *engine,
 			     (gpointer) printer);
 	g_debug ("add printer %s", objid->str);
 
+	/* watch for state changes */
+	g_signal_connect (printer,
+			  "notify::state",
+			  G_CALLBACK (pd_engine_printer_state_notify),
+			  printer);
+
 	/* export on bus */
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
 				       objid->str);
@@ -464,8 +513,8 @@ pd_engine_get_printer_by_path	(PdEngine *engine,
  * @engine: A #PdEngine.
  * @job: A #PdJob.
  *
- * Adds a job to the global queue and exports it on the bus.  Returns
- * a newly-allocated object.
+ * Creates a new PdJob and exports it on the bus.  Returns the
+ * newly-allocated object.
  */
 PdJob *
 pd_engine_add_job	(PdEngine *engine,
@@ -492,6 +541,11 @@ pd_engine_add_job	(PdEngine *engine,
 				    "printer", printer_path,
 				    NULL));
 
+	/* watch for state changes */
+	g_signal_connect (job,
+			  "notify::state",
+			  G_CALLBACK (pd_engine_job_state_notify),
+			  job);
 
 	/* export on bus */
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
@@ -502,77 +556,46 @@ pd_engine_add_job	(PdEngine *engine,
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (job_object));
 
-	g_ptr_array_add (engine->priv->jobs,
-			 (gpointer) g_object_ref (job));
-
 	g_free (object_path);
 	return job;
 }
 
 /**
- * set_pending_job_processing:
- * @engine: A #PdEngine.
- * @job: A #PdJob.
+ * pd_engine_printer_state_notify:
+ * @printer: A #PdPrinter.
  *
- * Examines a job to see if it can be moved from a pending state to a
- * processing state, and moves it if so.
+ * Examines a printer's state and array of jobs to see whether any
+ * should be moved from a pending state to a processing state, and
+ * moves them if so.
  */
 static void
-set_pending_job_processing	(gpointer data,
-				 gpointer user_data)
+pd_engine_printer_state_notify	(PdPrinter *printer)
 {
-	PdJob *job = (PdJob *) data;
-	PdEngine *engine = (PdEngine *) user_data;
-	const gchar *printer_path;
-	gchar *printer_id = NULL;
-	PdPrinter *printer;
-	guint job_state;
-	guint printer_state;
+	PdJob *job = NULL;
 
-	g_return_if_fail (PD_IS_ENGINE (engine));
-	g_return_if_fail (PD_IS_JOB (job));
+	g_return_if_fail (PD_IS_PRINTER (printer));
 
-	g_debug ("  Examining job %u", pd_job_get_id (job));
-	job_state = pd_job_get_state (job);
-	g_debug ("    Job state is %s",
-		 pd_job_state_as_string (job_state));
-	if (job_state != PD_JOB_STATE_PENDING)
+	g_debug ("Printer %s changed state: %s",
+		 pd_printer_impl_get_id (PD_PRINTER_IMPL (printer)),
+		 pd_printer_state_as_string (pd_printer_get_state (printer)));
+
+	if (pd_printer_get_state (printer) != PD_PRINTER_STATE_IDLE)
+		/* Already busy */
 		goto out;
 
-	printer_path = pd_job_get_printer (job);
-	printer = pd_engine_get_printer_by_path (engine, printer_path);
-	if (!printer) {
-		g_debug ("    Incorrect printer ID %s", printer_id);
-		goto out;
-	}
-
-	printer_state = pd_printer_get_state (printer);
-	g_debug ("    Printer state is %s",
-		 pd_printer_state_as_string (printer_state));
-	if (printer_state != PD_PRINTER_STATE_IDLE)
+	job = pd_printer_impl_get_next_job (PD_PRINTER_IMPL (printer));
+	if (job == NULL)
 		goto out;
 
-	g_debug ("    -> Set job state to processing");
+	g_assert (pd_job_get_state (job) == PD_JOB_STATE_PENDING);
+
+	g_debug ("Job %u now ready to start processing",
+		 pd_job_get_id (job));
 	pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
 
-	pd_job_impl_start_processing (PD_JOB_IMPL (job));
  out:
-	g_free (printer_id);
-}
-
-/**
- * pd_engine_start_jobs:
- * @engine: A #PdEngine.
- *
- * Starts processing pending jobs.
- */
-void
-pd_engine_start_jobs	(PdEngine *engine)
-{
-	g_debug ("Looking for pending jobs to start");
-	g_ptr_array_foreach (engine->priv->jobs,
-			     set_pending_job_processing,
-			     engine);
+	if (job)
+		g_object_unref (job);
 }
 
 /**

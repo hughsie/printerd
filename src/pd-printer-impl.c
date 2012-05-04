@@ -56,6 +56,7 @@ struct _PdPrinterImpl
 	GHashTable		*defaults;
 	GHashTable		*supported;
 	GHashTable		*state_reasons;	/* set, i.e. key==value */
+	GPtrArray		*jobs;
 
 	gchar			*id;
 };
@@ -97,6 +98,7 @@ pd_printer_impl_finalize (GObject *object)
 	g_hash_table_unref (printer->defaults);
 	g_hash_table_unref (printer->supported);
 	g_hash_table_unref (printer->state_reasons);
+	g_ptr_array_free (printer->jobs, TRUE);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -281,6 +283,10 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 							g_str_equal,
 							g_free,
 							NULL);
+
+	/* Array of jobs */
+	printer->jobs = g_ptr_array_new_full (0,
+					      (GDestroyNotify) g_object_unref);
 
 	/* Set initial state */
 	pd_printer_set_state (PD_PRINTER (printer), PD_PRINTER_STATE_IDLE);
@@ -476,6 +482,8 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
  * @printer: A #PdPrinterImpl.
  *
  * Get an appropriate device URI to start a job on.
+ *
+ * Return: A device URI. Do not free.
  */
 const gchar *
 pd_printer_impl_get_uri (PdPrinterImpl *printer)
@@ -485,6 +493,34 @@ pd_printer_impl_get_uri (PdPrinterImpl *printer)
 	/* Simple implementation: always use the first URI in the list */
 	device_uris = pd_printer_get_device_uris (PD_PRINTER (printer));
 	return device_uris[0];
+}
+
+/**
+ * pd_printer_impl_get_next_job:
+ * @printer: A #PdPrinterImpl.
+ *
+ * Get the next job should should be processed, or NULL if there is no
+ * suitable job.
+ *
+ * Returns: A #PdJob or NULL.  Free with g_object_unref.
+ */
+PdJob *
+pd_printer_impl_get_next_job (PdPrinterImpl *printer)
+{
+	PdJob *job;
+
+	g_return_val_if_fail (PD_IS_PRINTER_IMPL (printer), NULL);
+
+	job = g_ptr_array_index (printer->jobs, 0);
+	if (job) {
+		if (pd_job_get_state (job) == PD_JOB_STATE_PENDING)
+			g_object_ref (job);
+		else
+			/* All jobs already processing. */
+			job = NULL;
+	}
+
+	return job;
 }
 
 /* ------------------------------------------------------------------ */
@@ -614,12 +650,16 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				       g_variant_ref (dvalue));
 	}
 
+	/* Tell the engine to create the job */
 	printer_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
 					printer->id);
 	job = pd_engine_add_job (pd_daemon_get_engine (printer->daemon),
 				 printer_path,
 				 name,
 				 g_variant_builder_end (&builder));
+
+	/* Store the job in our array */
+	g_ptr_array_add (printer->jobs, (gpointer) job);
 
 	/* Set job-originating-user-name */
 	sender = g_dbus_method_invocation_get_sender (invocation);
