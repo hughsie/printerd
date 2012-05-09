@@ -21,11 +21,13 @@
 #include "config.h"
 
 #include <glib.h>
+#include <glib/gi18n.h>
 
 #include "pd-manager-impl.h"
 #include "pd-daemon.h"
 #include "pd-engine.h"
 #include "pd-device-impl.h"
+#include "pd-printer-impl.h"
 
 /**
  * SECTION:pdmanager
@@ -242,40 +244,72 @@ pd_manager_impl_get_devices (PdManager *_manager,
 	return TRUE; /* handled the method invocation */
 }
 
+static void
+pd_manager_impl_complete_create_printer (PdManager *_manager,
+					 GDBusMethodInvocation *invocation,
+					 GVariant *options,
+					 const gchar *name,
+					 const gchar *description,
+					 const gchar *location,
+					 const gchar *const *device_uris,
+					 GVariant *defaults)
+{
+	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
+	PdPrinter *printer;
+	gchar *path;
+
+	g_debug ("Creating printer");
+
+	printer = pd_engine_add_printer (pd_daemon_get_engine (manager->daemon),
+					 name, description, location, NULL);
+
+	/* set device URIs */
+	pd_printer_set_device_uris (printer, device_uris);
+
+	/* set job template attribute */
+	pd_printer_impl_update_defaults (PD_PRINTER_IMPL (printer), defaults);
+
+	/* return object path */
+	path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
+				pd_printer_impl_get_id (PD_PRINTER_IMPL (printer)));
+	g_dbus_method_invocation_return_value (invocation,
+					       g_variant_new ("(o)",
+							      path));
+
+	/* clean up */
+	g_free (path);
+}
+
 /* runs in thread dedicated to handling @invocation */
 static gboolean
-pd_manager_impl_add_printer (PdManager *_manager,
-			GDBusMethodInvocation *invocation,
-			GVariant *options)
+pd_manager_impl_create_printer (PdManager *_manager,
+				GDBusMethodInvocation *invocation,
+				GVariant *options,
+				const gchar *name,
+				const gchar *description,
+				const gchar *location,
+				const gchar *const *device_uris,
+				GVariant *defaults)
 {
-//	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
-//	GError *error;
+	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
 
-	/* Check if the user is authorized to create a loop device */
-//	if (!pd_daemon_util_check_authorization_sync (manager->daemon,
-//							NULL,
-//							"org.freedesktop.printerd.printer-add",
-//							options,
-//							N_("Authentication is required to add a printer"),
-//							invocation))
-//		goto out;
-
-//	g_variant_lookup (options, "read-only", "b", &option_read_only);
-//	g_variant_lookup (options, "offset", "t", &option_offset);
-//	g_variant_lookup (options, "size", "t", &option_size);
-
-	if (TRUE) {
-		g_dbus_method_invocation_return_error (invocation,
-						 PD_ERROR,
-						 PD_ERROR_FAILED,
-						 "Error setting up loop device");
+	/* Check if the user is authorized to create a printer */
+	if (!pd_daemon_check_authorization_sync (manager->daemon,
+						 "org.freedesktop.printerd.printer-add",
+						 options,
+						 N_("Authentication is required to add a printer"),
+						 invocation))
 		goto out;
-	}
 
-//	pd_manager_impl_complete_add_printer (object,
-//					invocation,
-//					NULL, /* fd_list */
-//					g_dbus_object_get_object_path (G_DBUS_OBJECT (loop_object)));
+	pd_manager_impl_complete_create_printer (_manager,
+						 invocation,
+						 options,
+						 name,
+						 description,
+						 location,
+						 device_uris,
+						 defaults);
+
 out:
 	return TRUE; /* handled the method invocation */
 }
@@ -285,4 +319,5 @@ pd_manager_iface_init (PdManagerIface *iface)
 {
 	iface->handle_get_printers = pd_manager_impl_get_printers;
 	iface->handle_get_devices = pd_manager_impl_get_devices;
+	iface->handle_create_printer = pd_manager_impl_create_printer;
 }

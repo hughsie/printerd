@@ -335,12 +335,55 @@ static gint
 create_printer (const gchar *name,
 		const gchar *device_uri)
 {
+	gint ret = 1;
+	GError *error = NULL;
+	PdManager *pd_manager = NULL;
+	gchar *printer_path = NULL;
+	GVariantBuilder options, defaults;
+	const gchar *device_uris[2];
+
 	/* Have we got a device URI? */
 	if (!strchr (device_uri, '/'))
 		return create_printer_from_device (name, device_uri);
 
-	g_printerr ("Create printer from device URI: not implemented\n");
-	return 1;
+	pd_manager = pd_manager_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+							G_DBUS_PROXY_FLAGS_NONE,
+							"org.freedesktop.printerd",
+							"/org/freedesktop/printerd/Manager",
+							NULL,
+							&error);
+	if (!pd_manager) {
+		g_printerr ("Error getting manager: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	device_uris[0] = device_uri;
+	device_uris[1] = NULL;
+	g_variant_builder_init (&options, G_VARIANT_TYPE ("a{sv}"));
+	g_variant_builder_init (&defaults, G_VARIANT_TYPE ("a{sv}"));
+	if (!pd_manager_call_create_printer_sync (pd_manager,
+						  g_variant_builder_end (&options),
+						  name,
+						  "" /* description */,
+						  "" /* location */,
+						  device_uris,
+						  g_variant_builder_end (&defaults),
+						  &printer_path,
+						  NULL,
+						  &error)) {
+		g_printerr ("Error creating printer: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	g_debug ("Printer path is %s\n", printer_path);
+	ret = 0;
+ out:
+	if (pd_manager)
+		g_object_unref (pd_manager);
+	g_free (printer_path);
+	return ret;
 }
 
 int
