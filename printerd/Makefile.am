@@ -27,14 +27,12 @@ $(dbus_built_sources) : Makefile.am $(top_srcdir)/data/org.freedesktop.printerd.
 
 pd-enumtypes.h: pd-enums.h pd-enumtypes.h.template
 	( top_builddir=`cd $(top_builddir) && pwd`;					\
-	 cd $(srcdir) && glib-mkenums --template pd-enumtypes.h.template pd-enums.h ) |	\
-	   sed 's,U_TYPE_DISKS,PD_TYPE,' | sed 's,u_disks,pd-,' >			\
+	 cd $(srcdir) && glib-mkenums --template pd-enumtypes.h.template pd-enums.h ) >			\
 	   pd-enumtypes.h.tmp && mv pd-enumtypes.h.tmp pd-enumtypes.h
 
 pd-enumtypes.c: pd-enums.h pd-enumtypes.c.template
 	( top_builddir=`cd $(top_builddir) && pwd`;					\
-	 cd $(srcdir) && glib-mkenums --template pd-enumtypes.c.template pd-enums.h ) |	\
-	   sed 's,U_TYPE_DISKS,PD_TYPE,' | sed 's,u_disks,pd-,' >			\
+	 cd $(srcdir) && glib-mkenums --template pd-enumtypes.c.template pd-enums.h ) >			\
 	   pd-enumtypes.c.tmp && mv pd-enumtypes.c.tmp pd-enumtypes.c
 
 enum_built_sources =							\
