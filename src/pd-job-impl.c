@@ -356,39 +356,44 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 			   gpointer data)
 {
 	PdJobImpl *job = PD_JOB_IMPL (data);
+	guint job_id = pd_job_get_id (PD_JOB (job));
 	gboolean keep_source = TRUE;
 	GError *error = NULL;
 	GIOStatus status;
-	gchar buffer[1024];
+	gchar *line = NULL;
 	gsize got, wrote;
 
 	if (condition == G_IO_IN) {
-		/* Read data from backend */
+		/* Read messages from backend */
 		g_assert (channel == job->stderr_channel);
-		g_debug ("Backend stderr output:");
-		status = g_io_channel_read_chars (channel,
-						  buffer,
-						  sizeof (buffer) - 1,
-						  &got,
-						  &error);
+		while ((status = g_io_channel_read_line (channel,
+							 &line,
+							 &got,
+							 NULL,
+							 &error)) ==
+		       G_IO_STATUS_NORMAL) {
+			g_debug ("[Job %u] backend: %s",
+				 job_id,
+				 g_strchomp (line));
+		}
+
 		switch (status) {
 		case G_IO_STATUS_ERROR:
-			g_warning ("Error reading from channel: %s",
-				   error->message);
+			g_warning ("[Job %u] Error reading from channel: %s",
+				   job_id, error->message);
 			g_error_free (error);
 			goto out;
 		case G_IO_STATUS_EOF:
-			g_debug ("Backend output finished");
+			g_debug ("[Job %u] Backend stderr closed", job_id);
 			break;
 		case G_IO_STATUS_AGAIN:
-			g_debug ("Resource temporarily unavailable (weird?)");
+			/* End of messages for now */
 			break;
 		case G_IO_STATUS_NORMAL:
+			g_assert_not_reached ();
 			break;
 		}
 
-		buffer[got] = '\0';
-		g_debug ("%s", g_strchomp (buffer));
 	} else if (condition == G_IO_OUT) {
 		/* Send data to backend */
 		g_assert (channel == job->stdin_channel);
@@ -400,7 +405,8 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 					    sizeof (job->buffer));
 			if (got < 1) {
 				if (got == -1)
-					g_warning ("read() from spool: %s",
+					g_warning ("[Job %u] read() from spool: %s",
+						   job_id,
 						   g_strerror (errno));
 				close (job->document_fd);
 				job->document_fd = -1;
@@ -414,7 +420,8 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 			job->buflen = got;
 			job->bufsent = 0;
 
-			g_debug ("Read %zu bytes", got);
+			g_debug ("[Job %u] Read %zu bytes from spool file",
+				 job_id, got);
 		}
 
 		status = g_io_channel_write_chars (channel,
@@ -424,18 +431,20 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 						   &error);
 		switch (status) {
 		case G_IO_STATUS_ERROR:
-			g_warning ("Error writing to channel: %s",
-				   error->message);
+			g_warning ("[Job %u] Error writing to channel: %s",
+				   job_id, error->message);
 			g_error_free (error);
 			goto out;
 		case G_IO_STATUS_EOF:
-			g_debug ("EOF on write?");
+			g_debug ("[Job %u] EOF on write?", job_id);
 			break;
 		case G_IO_STATUS_AGAIN:
-			g_debug ("Resource temporarily unavailable");
+			g_debug ("[Job %u] Resource temporarily unavailable",
+				 job_id);
 			break;
 		case G_IO_STATUS_NORMAL:
-			g_debug ("Wrote %zu bytes", wrote);
+			g_debug ("[Job %u] Wrote %zu bytes to backend",
+				 job_id, wrote);
 			break;
 		}
 
@@ -443,6 +452,8 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 	}
 
  out:
+	if (line)
+		g_free (line);
 	return keep_source;
 }
 
