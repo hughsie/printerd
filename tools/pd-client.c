@@ -399,12 +399,9 @@ main (int argc, char **argv)
 	PdManager *pd_manager = NULL;
 	GOptionContext *opt_context = NULL;
 	gboolean verbose = FALSE;
-	gchar *destination = NULL;
 	GOptionEntry opt_entries[] = {
 		{ "verbose", 'v', 0, G_OPTION_ARG_NONE, &verbose,
 		  _("Show extra debugging information"), NULL },
-		{ "destination", 'd', 0, G_OPTION_ARG_STRING, &destination,
-		  _("Destination printer ID"), NULL },
 		{ NULL }
 	};
 
@@ -415,7 +412,8 @@ main (int argc, char **argv)
 				      "Commands:\n"
 				      "  get-printers\n"
 				      "  get-devices\n"
-				      "  create-printer <name> <device|URI>\n");
+				      "  create-printer <name> <device|URI>\n"
+				      "  print-files <name> <files...>\n");
 	g_option_context_add_main_entries (opt_context, opt_entries, NULL);
 	if (!g_option_context_parse (opt_context, &argc, &argv, &error)) {
 		g_printerr ("Error parsing options: %s\n", error->message);
@@ -508,7 +506,5 @@ main (int argc, char **argv)
 		g_object_unref (object_manager);
 	if (pd_manager)
 		g_object_unref (pd_manager);
-	if (destination)
-		g_free (destination);
 	return ret;
 }
