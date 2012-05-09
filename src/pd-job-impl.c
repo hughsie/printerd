@@ -66,7 +66,7 @@ struct _PdJobImpl
 	guint		 backend_in_io_source;
 	guint		 backend_out_io_source;
 	GIOChannel	*stdin_channel;
-	GIOChannel	*stdout_channel;
+	GIOChannel	*stderr_channel;
 
 	gchar		 buffer[1024];
 	gsize		 buflen;
@@ -117,8 +117,8 @@ pd_job_impl_finalize (GObject *object)
 		g_source_remove (job->backend_in_io_source);
 	if (job->backend_out_io_source != 0)
 		g_source_remove (job->backend_out_io_source);
-	if (job->stdout_channel)
-		g_io_channel_unref (job->stdout_channel);
+	if (job->stderr_channel)
+		g_io_channel_unref (job->stderr_channel);
 	if (job->stdin_channel)
 		g_io_channel_unref (job->stdin_channel);
 	G_OBJECT_CLASS (pd_job_impl_parent_class)->finalize (object);
@@ -364,8 +364,8 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 
 	if (condition == G_IO_IN) {
 		/* Read data from backend */
-		g_assert (channel == job->stdout_channel);
-		g_debug ("Backend stdout output:");
+		g_assert (channel == job->stderr_channel);
+		g_debug ("Backend stderr output:");
 		status = g_io_channel_read_chars (channel,
 						  buffer,
 						  sizeof (buffer) - 1,
@@ -387,7 +387,7 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 			break;
 		}
 
-		buffer[sizeof (buffer) - 1] = '\0';
+		buffer[got] = '\0';
 		g_debug ("%s", g_strchomp (buffer));
 	} else if (condition == G_IO_OUT) {
 		/* Send data to backend */
@@ -560,13 +560,15 @@ pd_job_impl_start_processing (PdJobImpl *job)
 						       pd_job_impl_backend_watch_cb,
 						       job);
 
-	job->stdout_channel = g_io_channel_unix_new (stdout_fd);
-	job->backend_out_io_source = g_io_add_watch (job->stdout_channel,
+	job->stderr_channel = g_io_channel_unix_new (stderr_fd);
+	g_io_channel_set_flags (job->stderr_channel, G_IO_FLAG_NONBLOCK, NULL);
+	job->backend_out_io_source = g_io_add_watch (job->stderr_channel,
 						     G_IO_IN,
 						     pd_job_impl_backend_io_cb,
 						     job);
 
 	job->stdin_channel = g_io_channel_unix_new (stdin_fd);
+	g_io_channel_set_flags (job->stdin_channel, G_IO_FLAG_NONBLOCK, NULL);
 	job->backend_in_io_source = g_io_add_watch (job->stdin_channel,
 						    G_IO_OUT,
 						    pd_job_impl_backend_io_cb,
