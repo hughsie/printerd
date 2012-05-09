@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -62,7 +63,14 @@ struct _PdJobImpl
 	gchar		*document_filename;
 	GPid		 backend_pid;
 	guint		 backend_watch_source;
-	guint		 backend_io_source;
+	guint		 backend_in_io_source;
+	guint		 backend_out_io_source;
+	GIOChannel	*stdin_channel;
+	GIOChannel	*stdout_channel;
+
+	gchar		 buffer[1024];
+	gsize		 buflen;
+	gsize		 bufsent;
 };
 
 struct _PdJobImplClass
@@ -105,6 +113,14 @@ pd_job_impl_finalize (GObject *object)
 		g_spawn_close_pid (job->backend_pid);
 	if (job->backend_watch_source != 0)
 		g_source_remove (job->backend_watch_source);
+	if (job->backend_in_io_source != 0)
+		g_source_remove (job->backend_in_io_source);
+	if (job->backend_out_io_source != 0)
+		g_source_remove (job->backend_out_io_source);
+	if (job->stdout_channel)
+		g_io_channel_unref (job->stdout_channel);
+	if (job->stdin_channel)
+		g_io_channel_unref (job->stdin_channel);
 	G_OBJECT_CLASS (pd_job_impl_parent_class)->finalize (object);
 }
 
@@ -337,46 +353,97 @@ pd_job_impl_backend_watch_cb (GPid pid,
 static gboolean
 pd_job_impl_backend_io_cb (GIOChannel *channel,
 			   GIOCondition condition,
-			   gpointer which)
+			   gpointer data)
 {
+	PdJobImpl *job = PD_JOB_IMPL (data);
+	gboolean keep_source = TRUE;
 	GError *error = NULL;
 	GIOStatus status;
 	gchar buffer[1024];
-	gsize got;
+	gsize got, wrote;
 
-	if (which == stdout) {
+	if (condition == G_IO_IN) {
+		/* Read data from backend */
+		g_assert (channel == job->stdout_channel);
 		g_debug ("Backend stdout output:");
-	} else {
-		/* Shouldn't get here! */
-		g_assert_not_reached ();
+		status = g_io_channel_read_chars (channel,
+						  buffer,
+						  sizeof (buffer) - 1,
+						  &got,
+						  &error);
+		switch (status) {
+		case G_IO_STATUS_ERROR:
+			g_warning ("Error reading from channel: %s",
+				   error->message);
+			g_error_free (error);
+			goto out;
+		case G_IO_STATUS_EOF:
+			g_debug ("Backend output finished");
+			break;
+		case G_IO_STATUS_AGAIN:
+			g_debug ("Resource temporarily unavailable (weird?)");
+			break;
+		case G_IO_STATUS_NORMAL:
+			break;
+		}
+
+		buffer[sizeof (buffer) - 1] = '\0';
+		g_debug ("%s", g_strchomp (buffer));
+	} else if (condition == G_IO_OUT) {
+		/* Send data to backend */
+		g_assert (channel == job->stdin_channel);
+
+		if (job->buflen - job->bufsent == 0) {
+			/* Read more from spool */
+			ssize_t got = read (job->document_fd,
+					    job->buffer,
+					    sizeof (job->buffer));
+			if (got < 1) {
+				if (got == -1)
+					g_warning ("read() from spool: %s",
+						   g_strerror (errno));
+				close (job->document_fd);
+				job->document_fd = -1;
+				g_io_channel_shutdown (channel, TRUE, NULL);
+				g_io_channel_unref (channel);
+				job->stdin_channel = NULL;
+				keep_source = FALSE;
+				goto out;
+			}
+
+			job->buflen = got;
+			job->bufsent = 0;
+
+			g_debug ("Read %zu bytes", got);
+		}
+
+		status = g_io_channel_write_chars (channel,
+						   job->buffer + job->bufsent,
+						   job->buflen - job->bufsent,
+						   &wrote,
+						   &error);
+		switch (status) {
+		case G_IO_STATUS_ERROR:
+			g_warning ("Error writing to channel: %s",
+				   error->message);
+			g_error_free (error);
+			goto out;
+		case G_IO_STATUS_EOF:
+			g_debug ("EOF on write?");
+			break;
+		case G_IO_STATUS_AGAIN:
+			g_debug ("Resource temporarily unavailable");
+			break;
+		case G_IO_STATUS_NORMAL:
+			g_debug ("Wrote %zu bytes", wrote);
+			break;
+		}
+
+		job->bufsent += wrote;
 	}
 
-	g_assert (condition == G_IO_IN);
-
-	status = g_io_channel_read_chars (channel,
-					  buffer,
-					  sizeof (buffer) - 1,
-					  &got,
-					  &error);
-	switch (status) {
-	case G_IO_STATUS_ERROR:
-		g_warning ("Error reading from channel: %s", error->message);
-		g_error_free (error);
-		goto out;
-	case G_IO_STATUS_EOF:
-		g_debug ("Backend output finished");
-		break;
-	case G_IO_STATUS_AGAIN:
-		g_debug ("Resource temporarily unavailable (weird?)");
-		break;
-	case G_IO_STATUS_NORMAL:
-		break;
-	}
-
-	buffer[sizeof (buffer) - 1] = '\0';
-	g_debug ("%s", g_strchomp (buffer));
  out:
-	return TRUE; /* don't remove this source */
+	return keep_source;
 }
 
 /**
@@ -400,7 +467,6 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	char **envp = NULL;
 	gchar **s;
 	gint stdin_fd, stdout_fd, stderr_fd;
-	GIOChannel *stdout_channel = NULL;
 
 	if (job->backend_pid != -1) {
 		g_warning ("Job %u already processing!",
@@ -477,17 +543,35 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto out;
 	}
 
+	job->buflen = 0;
+	job->bufsent = 0;
+	job->document_fd = open (job->document_filename, O_RDONLY);
+	if (job->document_fd == -1) {
+		g_error ("Failed to open spool file %s: %s",
+			 job->document_filename, g_strerror (errno));
+
+		/* Update job state */
+		pd_job_set_state (PD_JOB (job),
+				  PD_JOB_STATE_ABORTED);
+		goto out;
+	}
+
 	job->backend_watch_source = g_child_watch_add (job->backend_pid,
 						       pd_job_impl_backend_watch_cb,
 						       job);
-	stdout_channel = g_io_channel_unix_new (stdout_fd);
-	job->backend_io_source = g_io_add_watch (stdout_channel,
-						 G_IO_IN,
-						 pd_job_impl_backend_io_cb,
-						 stdout);
+
+	job->stdout_channel = g_io_channel_unix_new (stdout_fd);
+	job->backend_out_io_source = g_io_add_watch (job->stdout_channel,
+						     G_IO_IN,
+						     pd_job_impl_backend_io_cb,
+						     job);
+
+	job->stdin_channel = g_io_channel_unix_new (stdin_fd);
+	job->backend_in_io_source = g_io_add_watch (job->stdin_channel,
+						    G_IO_OUT,
+						    pd_job_impl_backend_io_cb,
+						    job);
  out:
-	if (stdout_channel)
-		g_io_channel_unref (stdout_channel);
 	g_strfreev (argv);
 	g_strfreev (envp);
 	if (printer)
@@ -595,8 +679,8 @@ pd_job_impl_start (PdJob *_job,
 
 	g_assert (job->document_filename == NULL);
 	spoolfd = g_file_open_tmp ("printerd-spool-XXXXXX",
-			      &name_used,
-			      &error);
+				   &name_used,
+				   &error);
 
 	if (spoolfd < 0) {
 		g_debug ("Error making temporary file: %s", error->message);
@@ -605,6 +689,8 @@ pd_job_impl_start (PdJob *_job,
 		g_error_free (error);
 		goto out;
 	}
+
+	job->document_filename = g_strdup (name_used);
 
 	g_debug ("Starting job");
 
@@ -648,14 +734,15 @@ pd_job_impl_start (PdJob *_job,
 		}
 	}
 
-	/* Move the job state to pending */
-	g_debug ("  Set job state to pending");
-	pd_job_set_state (PD_JOB (job),
-			  PD_JOB_STATE_PENDING);
-
 	/* Job is no longer incoming so remove that state reason if
 	   present */
 	g_hash_table_remove (job->state_reasons, "job-incoming");
+
+	/* Move the job state to pending: this is now a candidate to
+	   start processing */
+	g_debug ("  Set job state to pending");
+	pd_job_set_state (PD_JOB (job),
+			  PD_JOB_STATE_PENDING);
 
 	/* Return success */
 	g_dbus_method_invocation_return_value (invocation,
