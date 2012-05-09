@@ -335,16 +335,18 @@ pd_job_impl_backend_watch_cb (GPid pid,
 			      gpointer user_data)
 {
 	PdJobImpl *job = PD_JOB_IMPL (user_data);
+	guint job_id = pd_job_get_id (PD_JOB (job));
 	g_spawn_close_pid (pid);
 	job->backend_pid = -1;
-	g_debug ("Backend finished with status %d", WEXITSTATUS (status));
+	g_debug ("[Job %u] Backend finished with status %d",
+		 job_id, WEXITSTATUS (status));
 
 	if (WEXITSTATUS (status) == 0) {
-		g_debug ("-> Set job state to completed");
+		g_debug ("[Job %u] -> Set job state to completed", job_id);
 		pd_job_set_state (PD_JOB (job),
 				  PD_JOB_STATE_COMPLETED);
 	} else {
-		g_debug ("-> Set job state to aborted");
+		g_debug ("[Job %u] -> Set job state to aborted", job_id);
 		pd_job_set_state (PD_JOB (job),
 				  PD_JOB_STATE_ABORTED);
 	}
@@ -468,6 +470,7 @@ static void
 pd_job_impl_start_processing (PdJobImpl *job)
 {
 	GError *error = NULL;
+	guint job_id = pd_job_get_id (PD_JOB (job));
 	const gchar *printer_path;
 	const gchar *uri;
 	gchar *username;
@@ -480,12 +483,11 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	gint stdin_fd, stdout_fd, stderr_fd;
 
 	if (job->backend_pid != -1) {
-		g_warning ("Job %u already processing!",
-			   pd_job_get_id (PD_JOB (job)));
+		g_warning ("[Job %u] Already processing!", job_id);
 		goto out;
 	}
 
-	g_debug ("Starting to process job %u", pd_job_get_id (PD_JOB (job)));
+	g_debug ("[Job %u] Starting to process job", job_id);
 
 	/* No filtering yet (to be done): instead just run it through
 	   the backend. */
@@ -495,12 +497,13 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	printer = pd_engine_get_printer_by_path (pd_daemon_get_engine (job->daemon),
 						 printer_path);
 	if (!printer) {
-		g_warning ("Incorrect printer path %s", printer_path);
+		g_warning ("[Job %u] Incorrect printer path %s",
+			   job_id, printer_path);
 		goto out;
 	}
 
 	uri = pd_printer_impl_get_uri (PD_PRINTER_IMPL (printer));
-	g_debug ("  Using device URI %s", uri);
+	g_debug ("[Job %u] Using device URI %s", job_id, uri);
 	pd_job_set_device_uri (PD_JOB (job), uri);
 	scheme = g_uri_parse_scheme (uri);
 
@@ -532,11 +535,11 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	envp[0] = g_strdup_printf ("DEVICE_URI=%s", uri);
 	envp[1] = NULL;
 
-	g_debug ("  Executing %s", argv[0]);
+	g_debug ("[Job %u] Executing %s", job_id, argv[0]);
 	for (s = envp; *s; s++)
-		g_debug ("    Env: %s", *s);
+		g_debug ("[Job %u]  Env: %s", job_id, *s);
 	for (s = argv + 1; *s; s++)
-		g_debug ("    Arg: %s", *s);
+		g_debug ("[Job %u]  Arg: %s", job_id, *s);
 	if (!g_spawn_async_with_pipes ("/" /* wd */,
 				       argv,
 				       envp,
@@ -549,7 +552,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 				       &stdout_fd,
 				       &stderr_fd,
 				       &error)) {
-		g_warning ("Failed to start backend: %s\n", error->message);
+		g_warning ("[Job %u] Failed to start backend: %s",
+			   job_id, error->message);
 		g_error_free (error);
 		goto out;
 	}
@@ -558,8 +562,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	job->bufsent = 0;
 	job->document_fd = open (job->document_filename, O_RDONLY);
 	if (job->document_fd == -1) {
-		g_error ("Failed to open spool file %s: %s",
-			 job->document_filename, g_strerror (errno));
+		g_error ("[Job %u] Failed to open spool file %s: %s",
+			 job_id, job->document_filename, g_strerror (errno));
 
 		/* Update job state */
 		pd_job_set_state (PD_JOB (job),
@@ -620,18 +624,19 @@ pd_job_impl_add_document (PdJob *_job,
 			  GVariant *file_descriptor)
 {
 	PdJobImpl *job = PD_JOB_IMPL (_job);
+	guint job_id = pd_job_get_id (PD_JOB (job));
 	GDBusMessage *message;
 	GUnixFDList *fd_list;
 	gint32 fd_handle;
 	GError *error = NULL;
 
-	/* Check if the user is authorized to create a printer */
+	/* Check if the user is authorized to add a document */
 	//if (!pd_daemon_util_check_authorization_sync ())
 	//	goto out;
 
 	if (job->document_fd != -1 ||
 	    job->document_filename != NULL) {
-		g_debug ("Tried to add second document");
+		g_debug ("[Job %u] Tried to add second document", job_id);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
@@ -639,7 +644,7 @@ pd_job_impl_add_document (PdJob *_job,
 		goto out;
 	}
 
-	g_debug ("Adding document");
+	g_debug ("[Job %u] Adding document", job_id);
 	message = g_dbus_method_invocation_get_message (invocation);
 	fd_list = g_dbus_message_get_unix_fd_list (message);
 	if (fd_list != NULL && g_unix_fd_list_get_length (fd_list) == 1) {
@@ -648,15 +653,16 @@ pd_job_impl_add_document (PdJob *_job,
 						       fd_handle,
 						       &error);
 		if (job->document_fd < 0) {
-			g_debug ("  failed to get file descriptor: %s",
-				 error->message);
+			g_debug ("[Job %u] failed to get file descriptor: %s",
+				 job_id, error->message);
 			g_dbus_method_invocation_return_gerror (invocation,
 								error);
 			g_error_free (error);
 			goto out;
 		}
 
-		g_debug ("  Got file descriptor: %d", job->document_fd);
+		g_debug ("[Job %u] Got file descriptor: %d",
+			 job_id, job->document_fd);
 	}
 
 	g_dbus_method_invocation_return_value (invocation, NULL);
@@ -671,6 +677,7 @@ pd_job_impl_start (PdJob *_job,
 		   GDBusMethodInvocation *invocation)
 {
 	PdJobImpl *job = PD_JOB_IMPL (_job);
+	guint job_id = pd_job_get_id (PD_JOB (job));
 	gchar *name_used = NULL;
 	GError *error = NULL;
 	gint infd = -1;
@@ -678,7 +685,7 @@ pd_job_impl_start (PdJob *_job,
 	char buffer[1024];
 	ssize_t got, wrote;
 
-	/* Check if the user is authorized to create a printer */
+	/* Check if the user is authorized to start a job */
 	//if (!pd_daemon_util_check_authorization_sync ())
 	//	goto out;
 
@@ -696,7 +703,8 @@ pd_job_impl_start (PdJob *_job,
 				   &error);
 
 	if (spoolfd < 0) {
-		g_debug ("Error making temporary file: %s", error->message);
+		g_debug ("[Job %u] Error making temporary file: %s",
+			 job_id, error->message);
 		g_dbus_method_invocation_return_gerror (invocation,
 							error);
 		g_error_free (error);
@@ -705,10 +713,10 @@ pd_job_impl_start (PdJob *_job,
 
 	job->document_filename = g_strdup (name_used);
 
-	g_debug ("Starting job");
+	g_debug ("[Job %u] Starting job", job_id);
 
-	g_debug ("  Spooling");
-	g_debug ("    Created temporary file %s", name_used);
+	g_debug ("[Job %u] Spooling", job_id);
+	g_debug ("[Job %u]   Created temporary file %s", job_id, name_used);
 	infd = job->document_fd;
 	job->document_fd = -1;
 
