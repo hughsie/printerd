@@ -135,6 +135,7 @@ print_files (const char *printer_id,
 	PdJob *pd_job = NULL;
 	gchar *printer_path = NULL;
 	gchar *job_path = NULL;
+	GVariant *unsupported = NULL;
 	GVariantBuilder options;
 	GVariantBuilder attributes;
 	gchar **file;
@@ -165,6 +166,7 @@ print_files (const char *printer_id,
 					      "New job",
 					      g_variant_builder_end (&attributes),
 					      &job_path,
+					      &unsupported,
 					      NULL,
 					      &error)) {
 		g_printerr ("Error creating job: %s\n", error->message);
@@ -273,6 +275,8 @@ print_files (const char *printer_id,
  out:
 	g_free (printer_path);
 	g_free (job_path);
+	if (unsupported)
+		g_variant_unref (unsupported);
 	if (pd_printer)
 		g_object_unref (pd_printer);
 	if (pd_job != NULL)

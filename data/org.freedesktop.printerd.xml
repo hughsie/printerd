@@ -264,6 +264,7 @@
       <arg name="name" direction="in" type="s"/>
       <arg name="attributes" direction="in" type="a{sv}"/>
       <arg name="resulting_job" direction="out" type="o"/>
+      <arg name="unsupported" direction="out" type="a{sv}"/>
     </method>
   </interface>
 
