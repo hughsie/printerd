@@ -1,2 +1,6 @@
 data/org.freedesktop.printerd.policy.in
 src/main.c
+src/pd-client.c
+src/pd-device-impl.c
+src/pd-manager-impl.c
+src/pd-printer-impl.c
