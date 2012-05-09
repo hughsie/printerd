@@ -3,7 +3,7 @@ dbusservice_in_files = org.freedesktop.printerd.service.in
 dbusservice_DATA     = $(dbusservice_in_files:.service.in=.service)
 
 $(dbusservice_DATA): $(dbusservice_in_files) Makefile
-	@sed -e "s|\@libdir\@|$(libdir)|" $< > $@
+	@sed -e "s|\@libexecdir\@|$(libexecdir)|" $< > $@
 
 dbusconfdir = $(sysconfdir)/dbus-1/system.d
 dbusconf_in_files = org.freedesktop.printerd.conf.in
@@ -19,7 +19,7 @@ systemdservicedir       = $(DESTDIR)$(systemdsystemunitdir)
 systemdservice_DATA     = $(systemdservice_in_files:.service.in=.service)
 
 $(systemdservice_DATA): $(systemdservice_in_files) Makefile
-	@sed -e "s|\@libdir\@|$(libdir)|" $< > $@
+	@sed -e "s|\@libexecdir\@|$(libexecdir)|" $< > $@
 endif
 
 polkitdir        = $(datadir)/polkit-1/actions

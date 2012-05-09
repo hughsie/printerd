@@ -103,7 +103,6 @@ echo "
         sysconfdir:                 ${sysconfdir}
         localstatedir:              ${localstatedir}
         docdir:                     ${docdir}
-        privlibdir:                 ${privlibdir}
         introspection:              ${found_introspection}
         systemdsystemunitdir:       ${systemdsystemunitdir}
 
