@@ -4,7 +4,7 @@ Summary:   Printer daemon
 Name:      printerd
 Version:   #VERSION#
 Release:   0.#BUILD#%{?alphatag}%{?dist}
-License:   GPLv2+ and LGPLv2+
+License:   GPLv2+
 URL:       http://www.freedesktop.org/software/printerd/
 Source0:   http://www.freedesktop.org/software/printerd/releases/%{name}-%{version}.tar.xz
 
