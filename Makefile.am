@@ -4,9 +4,9 @@ SUBDIRS = 						\
 	doc						\
 	printerd					\
 	data						\
+	src						\
 	tools						\
-	po						\
-	src
+	po
 
 MAINTAINERCLEANFILES =					\
 	$(srcdir)/INSTALL				\
