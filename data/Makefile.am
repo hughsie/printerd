@@ -15,7 +15,7 @@ $(dbusconf_DATA): $(dbusconf_in_files) Makefile
 systemdservice_in_files = printerd.service.in
 
 if HAVE_SYSTEMD
-systemdservicedir       = $(systemdsystemunitdir)
+systemdservicedir       = $(DESTDIR)$(systemdsystemunitdir)
 systemdservice_DATA     = $(systemdservice_in_files:.service.in=.service)
 
 $(systemdservice_DATA): $(systemdservice_in_files) Makefile

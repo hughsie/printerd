@@ -32,6 +32,10 @@ MAINTAINERCLEANFILES =					\
 	$(srcdir)/printerd-*.tar.*			\
 	`find "$(srcdir)" -type f -name Makefile.in -print`
 
+DISTCHECK_CONFIGURE_FLAGS =				\
+	--disable-introspection				\
+	--with-systemdsystemunitdir=
+
 distclean-local:
 	if test $(srdcir) = .; then :; else \
 		rm -f ChangeLog; \
