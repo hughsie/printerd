@@ -766,7 +766,7 @@ pd_job_impl_start (PdJob *_job,
 
 	/* Move the job state to pending: this is now a candidate to
 	   start processing */
-	g_debug ("  Set job state to pending");
+	g_debug ("[Job %u]  Set job state to pending", job_id);
 	pd_job_set_state (PD_JOB (job),
 			  PD_JOB_STATE_PENDING);
 
