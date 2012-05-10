@@ -305,11 +305,14 @@
 
     <!--
         Start:
+	@options: Options (currently unused except for <link linkend="printerd-std-options">standard options</link>).
 
 	Make the job available for processing. This causes the job
 	document to be read.
     -->
-    <method name="Start"/>
+    <method name="Start">
+      <arg name="options" type="a{sv}" direction="in"/>
+    </method>
 
     <!--
         Validate:

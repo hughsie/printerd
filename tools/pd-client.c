@@ -138,6 +138,7 @@ print_files (const char *printer_id,
 	GVariant *unsupported = NULL;
 	GVariantBuilder options;
 	GVariantBuilder attributes;
+	GVariantBuilder start_options;
 	gchar **file;
 
 	/* Get the Printer */
@@ -263,7 +264,11 @@ print_files (const char *printer_id,
 		goto out;
 	}
 
-	if (!pd_job_call_start_sync (pd_job, NULL, &error)) {
+	g_variant_builder_init (&start_options, G_VARIANT_TYPE ("a{sv}"));
+	if (!pd_job_call_start_sync (pd_job,
+				     g_variant_builder_end (&start_options),
+				     NULL,
+				     &error)) {
 		g_printerr ("Error starting job: %s\n", error->message);
 		g_error_free (error);
 		goto out;

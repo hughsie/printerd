@@ -28,6 +28,7 @@
 
 #include <gio/gunixfdlist.h>
 #include <glib.h>
+#include <glib/gi18n.h>
 #include <glib/gstdio.h>
 
 #include "pd-daemon.h"
@@ -679,7 +680,8 @@ pd_job_impl_add_document (PdJob *_job,
 /* runs in thread dedicated to handling @invocation */
 static gboolean
 pd_job_impl_start (PdJob *_job,
-		   GDBusMethodInvocation *invocation)
+		   GDBusMethodInvocation *invocation,
+		   GVariant *options)
 {
 	PdJobImpl *job = PD_JOB_IMPL (_job);
 	guint job_id = pd_job_get_id (PD_JOB (job));
@@ -691,8 +693,12 @@ pd_job_impl_start (PdJob *_job,
 	ssize_t got, wrote;
 
 	/* Check if the user is authorized to start a job */
-	//if (!pd_daemon_util_check_authorization_sync ())
-	//	goto out;
+	if (!pd_daemon_check_authorization_sync (job->daemon,
+						 "org.freedesktop.printerd.job-add",
+						 options,
+						 N_("Authentication is required to add a job"),
+						 invocation))
+		goto out;
 
 	if (job->document_fd == -1) {
 		g_dbus_method_invocation_return_error (invocation,
