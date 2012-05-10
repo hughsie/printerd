@@ -410,6 +410,8 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 					g_warning ("[Job %u] read() from spool: %s",
 						   job_id,
 						   g_strerror (errno));
+
+				g_debug ("[Job %u] Spool finished", job_id);
 				close (job->document_fd);
 				job->document_fd = -1;
 				g_io_channel_shutdown (channel, TRUE, NULL);
@@ -584,6 +586,9 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	job->stdin_channel = g_io_channel_unix_new (stdin_fd);
 	g_io_channel_set_flags (job->stdin_channel, G_IO_FLAG_NONBLOCK, NULL);
+	g_io_channel_set_encoding (job->stdin_channel, NULL, NULL);
+	g_io_channel_set_buffer_size (job->stdin_channel,
+				      sizeof (job->buffer));
 	job->backend_in_io_source = g_io_add_watch (job->stdin_channel,
 						    G_IO_OUT,
 						    pd_job_impl_backend_io_cb,
