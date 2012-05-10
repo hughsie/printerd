@@ -11,6 +11,10 @@ Now you can interact with it using the supplied "pd-client" tool, or
 with d-feet:
   http://live.gnome.org/DFeet/
 
+Note that currently there is no SELinux policy for printerd so when
+submitting files for printing you will need to enable permissive mode
+using "setenforce 0".
+
 The D-Bus objects are:
 
   Manager: for creating print queues with a specific device URI
