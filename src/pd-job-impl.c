@@ -31,6 +31,7 @@
 #include <glib/gi18n.h>
 #include <glib/gstdio.h>
 
+#include "pd-common.h"
 #include "pd-daemon.h"
 #include "pd-engine.h"
 #include "pd-job-impl.h"
@@ -751,10 +752,34 @@ pd_job_impl_add_document (PdJob *_job,
 	GUnixFDList *fd_list;
 	gint32 fd_handle;
 	GError *error = NULL;
+	GVariant *attr_user;
+	gchar *requesting_user = NULL;
+	const gchar *originating_user = NULL;
 
 	/* Check if the user is authorized to add a document */
-	//if (!pd_daemon_util_check_authorization_sync ())
-	//	goto out;
+	if (!pd_daemon_check_authorization_sync (job->daemon,
+						 "org.freedesktop.printerd.job-add",
+						 options,
+						 N_("Authentication is required to add a job"),
+						 invocation))
+		goto out;
+
+	/* Check if this user owns the job */
+	attr_user = g_hash_table_lookup (job->attributes,
+					 "job-originating-user-name");
+	if (attr_user)
+		originating_user = g_variant_get_string (attr_user, NULL);
+	requesting_user = pd_get_unix_user (invocation);
+	if (g_strcmp0 (originating_user, requesting_user)) {
+		g_debug ("[Job %u] AddDocument: denied "
+			 "[originating user: %s; requesting user: %s]",
+			 job_id, originating_user, requesting_user);
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Not job owner"));
+		goto out;
+	}
 
 	if (job->document_fd != -1 ||
 	    job->document_filename != NULL) {
@@ -790,6 +815,7 @@ pd_job_impl_add_document (PdJob *_job,
 	g_dbus_method_invocation_return_value (invocation, NULL);
 
  out:
+	g_free (requesting_user);
 	return TRUE; /* handled the method invocation */
 }
 
@@ -807,6 +833,9 @@ pd_job_impl_start (PdJob *_job,
 	gint spoolfd = -1;
 	char buffer[1024];
 	ssize_t got, wrote;
+	GVariant *attr_user;
+	gchar *requesting_user = NULL;
+	const gchar *originating_user = NULL;
 
 	/* Check if the user is authorized to start a job */
 	if (!pd_daemon_check_authorization_sync (job->daemon,
@@ -815,6 +844,23 @@ pd_job_impl_start (PdJob *_job,
 						 N_("Authentication is required to add a job"),
 						 invocation))
 		goto out;
+
+	/* Check if this user owns the job */
+	attr_user = g_hash_table_lookup (job->attributes,
+					 "job-originating-user-name");
+	if (attr_user)
+		originating_user = g_variant_get_string (attr_user, NULL);
+	requesting_user = pd_get_unix_user (invocation);
+	if (g_strcmp0 (originating_user, requesting_user)) {
+		g_debug ("[Job %u] AddDocument: denied "
+			 "[originating user: %s; requesting user: %s]",
+			 job_id, originating_user, requesting_user);
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Not job owner"));
+		goto out;
+	}
 
 	if (job->document_fd == -1) {
 		g_dbus_method_invocation_return_error (invocation,
@@ -896,6 +942,7 @@ pd_job_impl_start (PdJob *_job,
 					       g_variant_new ("()"));
 
  out:
+	g_free (requesting_user);
 	if (infd != -1)
 		close (infd);
 	if (spoolfd != -1)
@@ -912,9 +959,34 @@ pd_job_impl_cancel (PdJob *_job,
 {
 	PdJobImpl *job = PD_JOB_IMPL (_job);
 	guint job_id = pd_job_get_id (PD_JOB (job));
+	GVariant *attr_user;
+	gchar *requesting_user = NULL;
+	const gchar *originating_user = NULL;
 
 	/* Check if the user is authorized to cancel this job */
-	// TODO
+	if (!pd_daemon_check_authorization_sync (job->daemon,
+						 "org.freedesktop.printerd.job-cancel",
+						 options,
+						 N_("Authentication is required to cancel a job"),
+						 invocation))
+		goto out;
+
+	/* Check if this user owns the job */
+	attr_user = g_hash_table_lookup (job->attributes,
+					 "job-originating-user-name");
+	if (attr_user)
+		originating_user = g_variant_get_string (attr_user, NULL);
+	requesting_user = pd_get_unix_user (invocation);
+	if (g_strcmp0 (originating_user, requesting_user)) {
+		g_debug ("[Job %u] AddDocument: denied "
+			 "[originating user: %s; requesting user: %s]",
+			 job_id, originating_user, requesting_user);
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Not job owner"));
+		goto out;
+	}
 
         /* RFC 2911, 3.3.3: only these jobs in these states can be
 	   canceled */
@@ -942,7 +1014,8 @@ pd_job_impl_cancel (PdJob *_job,
 		;
 	}
 
-
+ out:
+	g_free (requesting_user);
 	return TRUE; /* handled the method invocation */
 }
 

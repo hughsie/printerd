@@ -23,11 +23,7 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 
-#include <errno.h>
-#include <pwd.h>
-#include <sys/types.h>
-#include <unistd.h>
-
+#include "pd-common.h"
 #include "pd-printer-impl.h"
 #include "pd-daemon.h"
 #include "pd-engine.h"
@@ -606,107 +602,6 @@ attribute_value_is_supported (PdPrinterImpl *printer,
 	return ret;
 }
 
-/**
- * pd_printer_impl_get_unix_user:
- * @printer: A #PdPrinter.
- * @invocation: A #GDBusMethodInvocation.
- *
- * Gets the unix user for the invocation.
- *
- * Returns: A floating string variant.
- */
-static GVariant *
-pd_printer_impl_get_unix_user (PdPrinter *_printer,
-			       GDBusMethodInvocation *invocation)
-{
-	GError *error = NULL;
-	GVariant *ret;
-	GDBusConnection *connection;
-	GDBusProxy *dbus_proxy = NULL;
-	GVariant *uid_reply = NULL;
-	GVariantIter iter_uid;
-	GVariant *uid = NULL;
-	struct passwd pwd, *result;
-	gchar *buf = NULL;
-	gsize bufsize;
-	int err;
-	const gchar *sender;
-
-	connection = g_dbus_method_invocation_get_connection (invocation);
-	dbus_proxy = g_dbus_proxy_new_sync (connection,
-					    G_DBUS_PROXY_FLAGS_NONE,
-					    NULL,
-					    "org.freedesktop.DBus",
-					    "/org/freedesktop/DBus",
-					    "org.freedesktop.DBus",
-					    NULL,
-					    &error);
-	if (dbus_proxy == NULL) {
-		g_warning ("Unable to get DBus proxy: %s", error->message);
-		g_error_free (error);
-		goto out;
-	}
-
-	sender = g_dbus_method_invocation_get_sender (invocation);
-	uid_reply = g_dbus_proxy_call_sync (dbus_proxy,
-					    "GetConnectionUnixUser",
-					    g_variant_new ("(s)", sender),
-					    G_DBUS_CALL_FLAGS_NONE,
-					    -1,
-					    NULL,
-					    &error);
-	if (uid_reply == NULL) {
-		g_warning ("GetConnectionUnixUser failed: %s", error->message);
-		g_error_free (error);
-		goto out;
-	}
-
-	if (g_variant_iter_init (&iter_uid, uid_reply) != 1) {
-		g_warning ("Bad reply from GetConnectionUnixUser");
-		goto out;
-	}
-
-	uid = g_variant_iter_next_value (&iter_uid);
-	if (!uid ||
-	    !g_variant_is_of_type (uid, G_VARIANT_TYPE_UINT32)) {
-		g_warning ("Bad value type from GetConnectionUnixUser");
-		goto out;
-	}
-
-	bufsize = sysconf (_SC_GETPW_R_SIZE_MAX);
-	if (bufsize == -1)
-		bufsize = 16384;
-
-	buf = g_malloc (bufsize);
-	err = getpwuid_r (g_variant_get_uint32 (uid),
-			  &pwd,
-			  buf,
-			  bufsize,
-			  &result);
-	if (result == NULL) {
-		if (err != 0)
-			g_warning ("Error looking up unix user: %s",
-				   g_strerror (errno));
-
-		g_free (buf);
-		buf = NULL;
-	}
-
- out:
-	if (uid_reply)
-		g_variant_unref (uid_reply);
-	if (uid)
-		g_variant_unref (uid);
-
-	if (buf) {
-		ret = g_variant_new_string (pwd.pw_name);
-		g_free (buf);
-	} else
-		ret = g_variant_new_string (":unknown:");
-
-	return ret;
-}
-
 static void
 pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				     GDBusMethodInvocation *invocation,
@@ -724,7 +619,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	GVariantIter iter_supplied;
 	gchar *dkey;
 	GVariant *dvalue;
-	GVariant *user;
+	gchar *user = NULL;
 
 	g_debug ("Creating job for printer %s", printer->id);
 
@@ -769,11 +664,11 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	g_ptr_array_add (printer->jobs, (gpointer) job);
 
 	/* Set job-originating-user-name */
-	user = pd_printer_impl_get_unix_user (PD_PRINTER (printer),
-					      invocation);
+	user = pd_get_unix_user (invocation);
+	g_debug ("Originating user: %s", user);
 	pd_job_impl_set_attribute (PD_JOB_IMPL (job),
 				   "job-originating-user-name",
-				   user);
+				   g_variant_new_string (user));
 
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       pd_job_get_id (job));
@@ -785,6 +680,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 							      g_variant_builder_end (&unsupported)));
 
  out:
+	g_free (user);
 	g_free (object_path);
 	g_free (printer_path);
 }

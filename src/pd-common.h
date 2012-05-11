@@ -28,6 +28,7 @@ G_BEGIN_DECLS
 GHashTable	*pd_parse_ieee1284_id		(const gchar *idstring);
 const gchar	*pd_job_state_as_string		(guint job_state);
 const gchar	*pd_printer_state_as_string	(guint printer_state);
+gchar		*pd_get_unix_user		(GDBusMethodInvocation *invocation);
 
 G_END_DECLS
 

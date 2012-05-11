@@ -20,6 +20,11 @@
 
 #include "config.h"
 
+#include <errno.h>
+#include <pwd.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include <glib.h>
 
 #include "pd-common.h"
@@ -105,4 +110,95 @@ pd_printer_state_as_string (guint printer_state)
 		return "unknown";
 
 	return text[printer_state - PD_PRINTER_STATE_IDLE];
+}
+
+gchar *
+pd_get_unix_user (GDBusMethodInvocation *invocation)
+{
+	GError *error = NULL;
+	gchar *ret;
+	GDBusConnection *connection;
+	GDBusProxy *dbus_proxy = NULL;
+	GVariant *uid_reply = NULL;
+	GVariantIter iter_uid;
+	GVariant *uid = NULL;
+	struct passwd pwd, *result;
+	gchar *buf = NULL;
+	gsize bufsize;
+	int err;
+	const gchar *sender;
+
+	connection = g_dbus_method_invocation_get_connection (invocation);
+	dbus_proxy = g_dbus_proxy_new_sync (connection,
+					    G_DBUS_PROXY_FLAGS_NONE,
+					    NULL,
+					    "org.freedesktop.DBus",
+					    "/org/freedesktop/DBus",
+					    "org.freedesktop.DBus",
+					    NULL,
+					    &error);
+	if (dbus_proxy == NULL) {
+		g_warning ("Unable to get DBus proxy: %s", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	sender = g_dbus_method_invocation_get_sender (invocation);
+	uid_reply = g_dbus_proxy_call_sync (dbus_proxy,
+					    "GetConnectionUnixUser",
+					    g_variant_new ("(s)", sender),
+					    G_DBUS_CALL_FLAGS_NONE,
+					    -1,
+					    NULL,
+					    &error);
+	if (uid_reply == NULL) {
+		g_warning ("GetConnectionUnixUser failed: %s", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	if (g_variant_iter_init (&iter_uid, uid_reply) != 1) {
+		g_warning ("Bad reply from GetConnectionUnixUser");
+		goto out;
+	}
+
+	uid = g_variant_iter_next_value (&iter_uid);
+	if (!uid ||
+	    !g_variant_is_of_type (uid, G_VARIANT_TYPE_UINT32)) {
+		g_warning ("Bad value type from GetConnectionUnixUser");
+		goto out;
+	}
+
+	bufsize = sysconf (_SC_GETPW_R_SIZE_MAX);
+	if (bufsize == -1)
+		bufsize = 16384;
+
+	buf = g_malloc (bufsize);
+	err = getpwuid_r (g_variant_get_uint32 (uid),
+			  &pwd,
+			  buf,
+			  bufsize,
+			  &result);
+	if (result == NULL) {
+		if (err != 0)
+			g_warning ("Error looking up unix user: %s",
+				   g_strerror (errno));
+
+		g_free (buf);
+		buf = NULL;
+	}
+
+ out:
+	if (uid_reply)
+		g_variant_unref (uid_reply);
+	if (uid)
+		g_variant_unref (uid);
+
+	if (buf) {
+		ret = g_strdup (pwd.pw_name);
+		g_free (buf);
+	} else
+		ret = g_strdup (":unknown:");
+
+	return ret;
 }
