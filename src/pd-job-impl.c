@@ -404,6 +404,43 @@ pd_job_impl_backend_watch_cb (GPid pid,
 	}
 }
 
+static void
+pd_job_impl_parse_stderr (PdJobImpl *job,
+			  const gchar *line)
+{
+	if (!strncmp (line, "STATE:", 6)) {
+		const gchar *token = line + 6;
+		const gchar *end;
+		gchar *reason;
+		gchar add_or_remove;
+
+		/* Skip whitespace */
+		token += strspn (token, " \t");
+		add_or_remove = token[0];
+		if (add_or_remove == '+' ||
+		    add_or_remove == '-') {
+			token++;
+			while (token[0] != '\0') {
+				end = token + strcspn (token, ", \t\n");
+				reason = g_strndup (token, end - token);
+
+				/* Process this reason */
+				if (add_or_remove == '+')
+					pd_job_impl_add_state_reason (job,
+								      reason);
+				else
+					pd_job_impl_remove_state_reason (job,
+									 reason);
+
+				g_free (reason);
+
+				/* Next reason */
+				token = end + strspn (end, ", \t\n");
+			}
+		}
+	}
+}
+
 static gboolean
 pd_job_impl_backend_io_cb (GIOChannel *channel,
 			   GIOCondition condition,
@@ -429,6 +466,7 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 			g_debug ("[Job %u] backend: %s",
 				 job_id,
 				 g_strchomp (line));
+			pd_job_impl_parse_stderr (job, line);
 		}
 
 		switch (status) {
