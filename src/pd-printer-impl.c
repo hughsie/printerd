@@ -470,7 +470,8 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 	g_variant_iter_init (&iter, defaults);
 	while (g_variant_iter_next (&iter, "{sv}", &key, &value)) {
 		gchar *val = g_variant_print (value, TRUE);
-		g_debug ("Defaults: set %s=%s", key, val);
+		g_debug ("[Printer %s] Defaults: set %s=%s",
+			 printer->id, key, val);
 		g_free (val);
 		g_hash_table_replace (printer->defaults,
 				      g_strdup (key),
@@ -575,7 +576,8 @@ attribute_value_is_supported (PdPrinterImpl *printer,
 
 	/* Type check. We only have string-valued defaults so far. */
 	if (!g_variant_is_of_type (value, G_VARIANT_TYPE ("s"))) {
-		g_debug ("Bad variant type for %s", key);
+		g_debug ("[Printer %s] Bad variant type for %s",
+			 printer->id, key);
 		goto out;
 	}
 
@@ -592,7 +594,8 @@ attribute_value_is_supported (PdPrinterImpl *printer,
 	}
 
 	if (!found) {
-		g_debug ("Unsupported value for %s", key);
+		g_debug ("[Printer %s] Unsupported value for %s",
+			 printer->id, key);
 		goto out;
 	}
 
@@ -621,7 +624,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	GVariant *dvalue;
 	gchar *user = NULL;
 
-	g_debug ("Creating job for printer %s", printer->id);
+	g_debug ("[Printer %s] Creating job", printer->id);
 
 	/* set attributes from job template attributes */
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
@@ -665,14 +668,15 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 
 	/* Set job-originating-user-name */
 	user = pd_get_unix_user (invocation);
-	g_debug ("Originating user: %s", user);
+	g_debug ("[Printer %s] Originating user is %s",
+		 printer->id, user);
 	pd_job_impl_set_attribute (PD_JOB_IMPL (job),
 				   "job-originating-user-name",
 				   g_variant_new_string (user));
 
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       pd_job_get_id (job));
-	g_debug ("Created job path is %s", object_path);
+	g_debug ("[Printer %s] Job path is %s", printer->id, object_path);
 	g_variant_builder_init (&unsupported, G_VARIANT_TYPE ("a{sv}"));
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_new ("(o@a{sv})",

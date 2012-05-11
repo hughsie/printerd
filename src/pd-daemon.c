@@ -311,7 +311,6 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 	subject = polkit_system_bus_name_new (sender);
 	flags = POLKIT_CHECK_AUTHORIZATION_FLAGS_ALLOW_USER_INTERACTION;
 
-	g_debug ("Checking authorization of %s for %s", sender, action_id);
 	result = polkit_authority_check_authorization_sync (daemon->authority,
 							    subject,
 							    action_id,
@@ -321,7 +320,8 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 							    &error);
 	g_object_unref (subject);
 	if (error) {
-		g_warning ("Checking authorization: %s", error->message);
+		g_warning ("[Daemon] Checking authorization: %s",
+			   error->message);
 		g_dbus_method_invocation_return_gerror (invocation,
 							error);
 		g_error_free (error);
@@ -330,7 +330,7 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 
 	if (result == NULL ||
 	    !polkit_authorization_result_get_is_authorized (result)) {
-		g_debug ("%s not authorized to add printer", sender);
+		g_debug ("[Daemon] %s not authorized to add printer", sender);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
@@ -339,7 +339,7 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 	}
 
 	/* Authorized */
-	g_debug ("Authorized");
+	g_debug ("[Daemon] %s authorized for %s", sender, action_id);
 	ret = TRUE;
 
  out:
