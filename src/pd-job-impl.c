@@ -89,6 +89,10 @@ enum
 };
 
 static void pd_job_iface_init (PdJobIface *iface);
+static void pd_job_impl_add_state_reason (PdJobImpl *job,
+					  const gchar *reason);
+static void pd_job_impl_remove_state_reason (PdJobImpl *job,
+					     const gchar *reason);
 static void pd_job_impl_job_state_notify (PdJobImpl *job);
 
 G_DEFINE_TYPE_WITH_CODE (PdJobImpl, pd_job_impl, PD_TYPE_JOB_SKELETON,
@@ -227,11 +231,8 @@ pd_job_impl_init (PdJobImpl *job)
 						    g_str_equal,
 						    g_free,
 						    NULL);
-	gchar *incoming = g_strdup ("job-incoming");
-	g_hash_table_insert (job->state_reasons, incoming, incoming);
-
-	pd_job_set_state (PD_JOB (job),
-			  PD_JOB_STATE_PENDING_HELD);
+	pd_job_impl_add_state_reason (job, "job-incoming");
+	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING_HELD);
 }
 
 static void
@@ -328,6 +329,56 @@ pd_job_impl_get_daemon (PdJobImpl *job)
 {
 	g_return_val_if_fail (PD_IS_JOB_IMPL (job), NULL);
 	return job->daemon;
+}
+
+static void
+pd_job_impl_log_state_reason (PdJobImpl *job,
+			      const gchar *reason,
+			      gchar add_or_remove)
+{
+	GList *keys = g_hash_table_get_keys (job->state_reasons);
+	GList *r;
+	GString *reasons = NULL;
+
+	for (r = g_list_first (keys); r; r = g_list_next (r)) {
+		if (reasons == NULL) {
+			reasons = g_string_new ("[");
+			g_string_append (reasons, r->data);
+		} else
+			g_string_append_printf (reasons,
+						",%s",
+						(gchar *) r->data);
+	}
+
+	if (reasons)
+		g_string_append_c (reasons, ']');
+
+	g_debug ("[Job %u] State reasons %c= %s, now %s",
+		 pd_job_get_id (PD_JOB (job)),
+		 add_or_remove,
+		 reason,
+		 reasons ? reasons->str : "[none]");
+
+	g_list_free (keys);
+	if (reasons)
+		g_string_free (reasons, TRUE);
+}
+
+static void
+pd_job_impl_add_state_reason (PdJobImpl *job,
+			      const gchar *reason)
+{
+	gchar *r = g_strdup (reason);
+	g_hash_table_insert (job->state_reasons, r, r);
+	pd_job_impl_log_state_reason (job, reason, '+');
+}
+
+static void
+pd_job_impl_remove_state_reason (PdJobImpl *job,
+				 const gchar *reason)
+{
+	g_hash_table_remove (job->state_reasons, reason);
+	pd_job_impl_log_state_reason (job, reason, '-');
 }
 
 static void
@@ -605,9 +656,36 @@ pd_job_impl_start_processing (PdJobImpl *job)
 static void
 pd_job_impl_job_state_notify (PdJobImpl *job)
 {
-	if (pd_job_get_state (PD_JOB (job)) == PD_JOB_STATE_PROCESSING &&
-	    job->backend_pid == -1)
-		pd_job_impl_start_processing (job);
+	/* This function watches changes to the job state and
+	   starts/stop things accordingly. */
+
+	switch (pd_job_get_state (PD_JOB (job))) {
+	case PD_JOB_STATE_PROCESSING:
+		/* Job has moved to processing state. */
+
+		if (job->backend_pid == -1)
+			/* Not running it yet, so do that. */
+			pd_job_impl_start_processing (job);
+
+		break;
+
+	case PD_JOB_STATE_CANCELED:
+	case PD_JOB_STATE_ABORTED:
+	case PD_JOB_STATE_COMPLETED:
+		/* Job is now terminated. */
+
+		if (job->stdin_channel != NULL) {
+			/* Stop sending data to the backend. */
+			g_debug ("[Job %u] Stop sending data to the backend",
+				 pd_job_get_id (PD_JOB (job)));
+			g_io_channel_shutdown (job->stdin_channel, TRUE, NULL);
+			g_io_channel_unref (job->stdin_channel);
+			job->stdin_channel = NULL;
+			g_source_remove (job->backend_in_io_source);
+		}
+	default:
+		;
+	}
 }
 
 void
@@ -646,7 +724,7 @@ pd_job_impl_add_document (PdJob *_job,
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
-						       "No more documents allowed");
+						       N_("No more documents allowed"));
 		goto out;
 	}
 
@@ -768,13 +846,12 @@ pd_job_impl_start (PdJob *_job,
 
 	/* Job is no longer incoming so remove that state reason if
 	   present */
-	g_hash_table_remove (job->state_reasons, "job-incoming");
+	pd_job_impl_remove_state_reason (job, "job-incoming");
 
 	/* Move the job state to pending: this is now a candidate to
 	   start processing */
 	g_debug ("[Job %u]  Set job state to pending", job_id);
-	pd_job_set_state (PD_JOB (job),
-			  PD_JOB_STATE_PENDING);
+	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING);
 
 	/* Return success */
 	g_dbus_method_invocation_return_value (invocation,
@@ -789,9 +866,53 @@ pd_job_impl_start (PdJob *_job,
 	return TRUE; /* handled the method invocation */
 }
 
+/* runs in thread dedicated to handling @invocation */
+static gboolean
+pd_job_impl_cancel (PdJob *_job,
+		    GDBusMethodInvocation *invocation,
+		    GVariant *options)
+{
+	PdJobImpl *job = PD_JOB_IMPL (_job);
+	guint job_id = pd_job_get_id (PD_JOB (job));
+
+	/* Check if the user is authorized to cancel this job */
+	// TODO
+
+        /* RFC 2911, 3.3.3: only these jobs in these states can be
+	   canceled */
+	switch (pd_job_get_state (_job)) {
+	case PD_JOB_STATE_PENDING:
+	case PD_JOB_STATE_PENDING_HELD:
+	case PD_JOB_STATE_PROCESSING:
+	case PD_JOB_STATE_PROCESSING_STOPPED:
+		/* Change job state. */
+		g_debug ("[Job %u] Canceled", job_id);
+		pd_job_impl_add_state_reason (job, "canceled-by-user");
+		pd_job_set_state (_job, PD_JOB_STATE_CANCELED);
+
+		/* Return success */
+		g_dbus_method_invocation_return_value (invocation,
+						       g_variant_new ("()"));
+		break;
+	default:
+		/* Send error */
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Cannot cancel completed job"));
+		break;
+		;
+	}
+
+
+	return TRUE; /* handled the method invocation */
+}
+
+
 static void
 pd_job_iface_init (PdJobIface *iface)
 {
 	iface->handle_add_document = pd_job_impl_add_document;
 	iface->handle_start = pd_job_impl_start;
+	iface->handle_cancel = pd_job_impl_cancel;
 }
