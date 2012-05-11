@@ -605,6 +605,38 @@ attribute_value_is_supported (PdPrinterImpl *printer,
 	return ret;
 }
 
+/**
+ * pd_printer_impl_job_state_notify
+ * @job: A #PdJob.
+ *
+ * Watch job state changes in order to update printer state.
+ */
+static void
+pd_printer_impl_job_state_notify (PdJob *job)
+{
+	const gchar *printer_path;
+	PdDaemon *daemon;
+	PdObject *obj;
+	PdPrinter *printer;
+
+	printer_path = pd_job_get_printer (job);
+	daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
+	obj = pd_daemon_find_object (daemon, printer_path);
+	printer = pd_object_get_printer (obj);
+
+	switch (pd_job_get_state (job)) {
+	case PD_JOB_STATE_PENDING:
+	case PD_JOB_STATE_CANCELED:
+	case PD_JOB_STATE_ABORTED:
+	case PD_JOB_STATE_COMPLETED:
+		/* Only one job can be processing at a time currently */
+		if (pd_printer_get_state (printer) == PD_PRINTER_STATE_PROCESSING)
+			pd_printer_set_state (printer,
+					      PD_PRINTER_STATE_IDLE);
+		break;
+	}
+}
+
 static void
 pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				     GDBusMethodInvocation *invocation,
@@ -665,6 +697,12 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 
 	/* Store the job in our array */
 	g_ptr_array_add (printer->jobs, (gpointer) job);
+
+	/* Watch state changes */
+	g_signal_connect (job,
+			  "notify::state",
+			  G_CALLBACK (pd_printer_impl_job_state_notify),
+			  job);
 
 	/* Set job-originating-user-name */
 	user = pd_get_unix_user (invocation);

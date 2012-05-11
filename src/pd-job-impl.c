@@ -232,7 +232,8 @@ pd_job_impl_init (PdJobImpl *job)
 						    g_str_equal,
 						    g_free,
 						    NULL);
-	pd_job_impl_add_state_reason (job, "job-incoming");
+	gchar *incoming = g_strdup ("job-incoming");
+	g_hash_table_insert (job->state_reasons, incoming, incoming);
 	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING_HELD);
 }
 
@@ -378,8 +379,10 @@ static void
 pd_job_impl_remove_state_reason (PdJobImpl *job,
 				 const gchar *reason)
 {
-	g_hash_table_remove (job->state_reasons, reason);
-	pd_job_impl_log_state_reason (job, reason, '-');
+	if (g_hash_table_lookup (job->state_reasons, reason)) {
+		g_hash_table_remove (job->state_reasons, reason);
+		pd_job_impl_log_state_reason (job, reason, '-');
+	}
 }
 
 static void
@@ -395,9 +398,18 @@ pd_job_impl_backend_watch_cb (GPid pid,
 		 job_id, WEXITSTATUS (status));
 
 	if (WEXITSTATUS (status) == 0) {
-		g_debug ("[Job %u] -> Set job state to completed", job_id);
-		pd_job_set_state (PD_JOB (job),
-				  PD_JOB_STATE_COMPLETED);
+		if (g_hash_table_lookup (job->state_reasons,
+					 "processing-to-stop-point")) {
+			g_debug ("[Job %u] -> Set job state to canceled",
+				 job_id);
+			pd_job_set_state (PD_JOB (job),
+					  PD_JOB_STATE_CANCELED);
+		} else {
+			g_debug ("[Job %u] -> Set job state to completed",
+				 job_id);
+			pd_job_set_state (PD_JOB (job),
+					  PD_JOB_STATE_COMPLETED);
+		}
 	} else {
 		g_debug ("[Job %u] -> Set job state to aborted", job_id);
 		pd_job_set_state (PD_JOB (job),
@@ -712,16 +724,9 @@ pd_job_impl_job_state_notify (PdJobImpl *job)
 	case PD_JOB_STATE_ABORTED:
 	case PD_JOB_STATE_COMPLETED:
 		/* Job is now terminated. */
-
-		if (job->stdin_channel != NULL) {
-			/* Stop sending data to the backend. */
-			g_debug ("[Job %u] Stop sending data to the backend",
-				 pd_job_get_id (PD_JOB (job)));
-			g_io_channel_shutdown (job->stdin_channel, TRUE, NULL);
-			g_io_channel_unref (job->stdin_channel);
-			job->stdin_channel = NULL;
-			g_source_remove (job->backend_in_io_source);
-		}
+		pd_job_impl_remove_state_reason (job, "job-incoming");
+		pd_job_impl_remove_state_reason (job,
+						 "processing-to-stop-point");
 	default:
 		;
 	}
@@ -993,8 +998,8 @@ pd_job_impl_cancel (PdJob *_job,
 	switch (pd_job_get_state (_job)) {
 	case PD_JOB_STATE_PENDING:
 	case PD_JOB_STATE_PENDING_HELD:
-	case PD_JOB_STATE_PROCESSING:
-	case PD_JOB_STATE_PROCESSING_STOPPED:
+		/* These can be canceled right away. */
+
 		/* Change job state. */
 		g_debug ("[Job %u] Canceled", job_id);
 		pd_job_impl_add_state_reason (job, "canceled-by-user");
@@ -1004,7 +1009,42 @@ pd_job_impl_cancel (PdJob *_job,
 		g_dbus_method_invocation_return_value (invocation,
 						       g_variant_new ("()"));
 		break;
-	default:
+
+	case PD_JOB_STATE_PROCESSING:
+	case PD_JOB_STATE_PROCESSING_STOPPED:
+		/* These need some time to tell the printer to
+		   e.g. eject the current page */
+
+		if (g_hash_table_lookup (job->state_reasons,
+					 "processing-to-stop-point")) {
+			g_dbus_method_invocation_return_error (invocation,
+							       PD_ERROR,
+							       PD_ERROR_FAILED,
+							       N_("Already canceled"));
+			goto out;
+		}
+
+		pd_job_impl_add_state_reason (job, "processing-to-stop-point");
+
+		if (job->stdin_channel != NULL) {
+			/* Stop sending data to the backend. */
+			g_debug ("[Job %u] Stop sending data to the backend",
+				 pd_job_get_id (PD_JOB (job)));
+			g_io_channel_shutdown (job->stdin_channel, TRUE, NULL);
+			g_io_channel_unref (job->stdin_channel);
+			job->stdin_channel = NULL;
+			g_source_remove (job->backend_in_io_source);
+		}
+
+		/* Simple implementation for now: just kill the backend */
+		if (job->backend_pid != -1)
+			kill (job->backend_pid, 9);
+
+		g_dbus_method_invocation_return_value (invocation,
+						       g_variant_new ("()"));
+		break;
+
+	default: /* only completed job states remaining */
 		/* Send error */
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,

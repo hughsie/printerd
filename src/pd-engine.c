@@ -340,6 +340,8 @@ pd_engine_job_state_notify	(PdJob *job)
 			g_debug ("[Engine] Printer for job %u idle "
 				 "so starting job",
 				 pd_job_get_id (job));
+			pd_printer_set_state (printer,
+					      PD_PRINTER_STATE_PROCESSING);
 			pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
 		}
 
@@ -592,6 +594,7 @@ pd_engine_printer_state_notify	(PdPrinter *printer)
 
 	g_debug ("[Engine] Job %u now ready to start processing",
 		 pd_job_get_id (job));
+	pd_printer_set_state (printer, PD_PRINTER_STATE_PROCESSING);
 	pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
 
  out:
