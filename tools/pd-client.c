@@ -125,6 +125,51 @@ get_printers (PdManager *pd_manager)
 }
 
 static gint
+cancel_job (const gchar *job_id)
+{
+	gint ret = 1;
+	GError *error = NULL;
+	gchar *job_path = NULL;
+	PdJob *pd_job = NULL;
+	GVariantBuilder options;
+
+	if (job_id[0] == '/')
+		job_path = g_strdup (job_id);
+	else
+		job_path = g_strdup_printf ("/org/freedesktop/printerd/job/%s",
+					    job_id);
+
+	pd_job = pd_job_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+						G_DBUS_PROXY_FLAGS_NONE,
+						"org.freedesktop.printerd",
+						job_path,
+						NULL,
+						&error);
+	if (!pd_job) {
+		g_printerr ("Error getting job: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	g_variant_builder_init (&options, G_VARIANT_TYPE ("a{sv}"));
+	if (!pd_job_call_cancel_sync (pd_job,
+				      g_variant_builder_end (&options),
+				      NULL,
+				      &error)) {
+		g_printerr ("Error canceling job: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	ret = 0;
+ out:
+	if (pd_job)
+		g_object_unref (pd_job);
+	g_free (job_path);
+	return ret;
+}
+
+static gint
 print_files (const char *printer_id,
 	     char **files)
 {
@@ -138,6 +183,7 @@ print_files (const char *printer_id,
 	GVariant *unsupported = NULL;
 	GVariantBuilder options;
 	GVariantBuilder attributes;
+	gboolean docs_added = FALSE;
 	GVariantBuilder start_options;
 	gchar **file;
 
@@ -238,6 +284,7 @@ print_files (const char *printer_id,
 		}
 
 		g_debug ("Document added");
+		docs_added = TRUE;
 		goto next_document;
 
 	next_document:
@@ -250,6 +297,11 @@ print_files (const char *printer_id,
 	}
 
 	error = NULL;
+
+	if (!docs_added) {
+		cancel_job (job_path);
+		goto out;
+	}
 
 	/* Now get the job and start it */
 	pd_job = pd_job_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
@@ -392,51 +444,6 @@ create_printer (const gchar *name,
 	if (pd_manager)
 		g_object_unref (pd_manager);
 	g_free (printer_path);
-	return ret;
-}
-
-static gint
-cancel_job (const gchar *job_id)
-{
-	gint ret = 1;
-	GError *error = NULL;
-	gchar *job_path = NULL;
-	PdJob *pd_job = NULL;
-	GVariantBuilder options;
-
-	if (job_id[0] == '/')
-		job_path = g_strdup (job_id);
-	else
-		job_path = g_strdup_printf ("/org/freedesktop/printerd/job/%s",
-					    job_id);
-
-	pd_job = pd_job_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
-						G_DBUS_PROXY_FLAGS_NONE,
-						"org.freedesktop.printerd",
-						job_path,
-						NULL,
-						&error);
-	if (!pd_job) {
-		g_printerr ("Error getting job: %s\n", error->message);
-		g_error_free (error);
-		goto out;
-	}
-
-	g_variant_builder_init (&options, G_VARIANT_TYPE ("a{sv}"));
-	if (!pd_job_call_cancel_sync (pd_job,
-				      g_variant_builder_end (&options),
-				      NULL,
-				      &error)) {
-		g_printerr ("Error canceling job: %s\n", error->message);
-		g_error_free (error);
-		goto out;
-	}
-
-	ret = 0;
- out:
-	if (pd_job)
-		g_object_unref (pd_job);
-	g_free (job_path);
 	return ret;
 }
 
