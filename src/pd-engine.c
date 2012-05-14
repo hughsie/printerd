@@ -61,17 +61,30 @@ static void pd_engine_printer_state_notify (PdPrinter *printer);
 G_DEFINE_TYPE (PdEngine, pd_engine, G_TYPE_OBJECT);
 
 static void
-pd_engine_finalize (GObject *object)
+pd_engine_dispose (GObject *object)
 {
 	PdEngine *engine = PD_ENGINE (object);
 
-	/* note: we don't hold a ref to engine->priv->daemon */
-	g_hash_table_unref (engine->priv->path_to_device);
-	g_hash_table_unref (engine->priv->id_to_printer);
-	g_hash_table_unref (engine->priv->id_to_handle);
+	g_debug ("[Engine] Dispose");
 
-	if (G_OBJECT_CLASS (pd_engine_parent_class)->finalize != NULL)
-		G_OBJECT_CLASS (pd_engine_parent_class)->finalize (object);
+	/* note: we don't hold a ref to engine->priv->daemon */
+	if (engine->priv->path_to_device) {
+		g_hash_table_unref (engine->priv->path_to_device);
+		engine->priv->path_to_device = NULL;
+	}
+
+	if (engine->priv->id_to_printer) {
+		g_hash_table_unref (engine->priv->id_to_printer);
+		engine->priv->id_to_printer = NULL;
+	}
+
+	if (engine->priv->id_to_handle) {
+		g_hash_table_unref (engine->priv->id_to_handle);
+		engine->priv->id_to_handle = NULL;
+	}
+
+	if (G_OBJECT_CLASS (pd_engine_parent_class)->dispose != NULL)
+		G_OBJECT_CLASS (pd_engine_parent_class)->dispose (object);
 }
 
 static void
@@ -283,7 +296,7 @@ pd_engine_class_init (PdEngineClass *klass)
 	GObjectClass *gobject_class;
 
 	gobject_class = G_OBJECT_CLASS (klass);
-	gobject_class->finalize = pd_engine_finalize;
+	gobject_class->dispose = pd_engine_dispose;
 	gobject_class->set_property = pd_engine_set_property;
 	gobject_class->get_property = pd_engine_get_property;
 

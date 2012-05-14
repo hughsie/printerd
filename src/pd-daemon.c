@@ -64,10 +64,23 @@ enum
 G_DEFINE_TYPE (PdDaemon, pd_daemon, G_TYPE_OBJECT);
 
 static void
+pd_daemon_dispose (GObject *object)
+{
+	PdDaemon *daemon = PD_DAEMON (object);
+
+	g_debug ("[Daemon] Dispose");
+	g_object_run_dispose ((GObject *)daemon->engine);
+
+	if (G_OBJECT_CLASS (pd_daemon_parent_class)->dispose != NULL)
+		G_OBJECT_CLASS (pd_daemon_parent_class)->dispose (object);
+}
+
+static void
 pd_daemon_finalize (GObject *object)
 {
 	PdDaemon *daemon = PD_DAEMON (object);
 
+	g_debug ("[Daemon] Finalize");
 	g_object_unref (daemon->authority);
 	g_object_unref (daemon->object_manager);
 	g_object_unref (daemon->connection);
@@ -151,6 +164,7 @@ pd_daemon_class_init (PdDaemonClass *klass)
 	GObjectClass *gobject_class;
 
 	gobject_class = G_OBJECT_CLASS (klass);
+	gobject_class->dispose      = pd_daemon_dispose;
 	gobject_class->finalize     = pd_daemon_finalize;
 	gobject_class->constructed  = pd_daemon_constructed;
 	gobject_class->set_property = pd_daemon_set_property;
