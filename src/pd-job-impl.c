@@ -67,12 +67,15 @@ struct _PdJobImpl
 	guint		 backend_watch_source;
 	guint		 backend_in_io_source;
 	guint		 backend_out_io_source;
+	guint		 backend_back_io_source;
 	GIOChannel	*stdin_channel;
 	GIOChannel	*stderr_channel;
+	GIOChannel	*back_channel;
 
 	gchar		 buffer[1024];
 	gsize		 buflen;
 	gsize		 bufsent;
+	gint		 backend_backchannel[2]; /* pipe fds */
 };
 
 struct _PdJobImplClass
@@ -424,6 +427,25 @@ pd_job_impl_backend_watch_cb (GPid pid,
 		pd_job_set_state (PD_JOB (job),
 				  PD_JOB_STATE_ABORTED);
 	}
+
+	/* Close file descriptors */
+	if (job->stdin_channel) {
+		close (g_io_channel_unix_get_fd (job->stdin_channel));
+		g_io_channel_unref (job->stdin_channel);
+		job->stdin_channel = NULL;
+	}
+
+	if (job->stderr_channel) {
+		close (g_io_channel_unix_get_fd (job->stderr_channel));
+		g_io_channel_unref (job->stderr_channel);
+		job->stderr_channel = NULL;
+	}
+
+	if (job->back_channel) {
+		close (g_io_channel_unix_get_fd (job->back_channel));
+		g_io_channel_unref (job->back_channel);
+		job->back_channel = NULL;
+	}
 }
 
 static void
@@ -485,10 +507,17 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 							 NULL,
 							 &error)) ==
 		       G_IO_STATUS_NORMAL) {
-			g_debug ("[Job %u] backend: %s",
-				 job_id,
-				 g_strchomp (line));
-			pd_job_impl_parse_stderr (job, line);
+			if (channel == job->stderr_channel) {
+				g_debug ("[Job %u] backend(stderr): %s",
+					 job_id,
+					 g_strchomp (line));
+
+				pd_job_impl_parse_stderr (job, line);
+			} else {
+				g_assert (channel == job->back_channel);
+				g_debug ("[Job %u] backend(back): %zu bytes",
+					 job_id, got);
+			}
 		}
 
 		switch (status) {
@@ -573,6 +602,21 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 	return keep_source;
 }
 
+static void
+pd_job_impl_backend_setup (gpointer user_data)
+{
+	PdJobImpl *job = PD_JOB_IMPL (user_data);
+
+	/* Set our writable back-channel to a known fd */
+	if (job->backend_backchannel[0] != 3) {
+		dup2 (job->backend_backchannel[0], 3);
+		close (job->backend_backchannel[0]);
+	}
+
+	/* Close the parent's end of the pipe */
+	close (job->backend_backchannel[1]);
+}
+
 /**
  * pd_job_impl_start_processing:
  * @job: A #PdJobImpl
@@ -654,13 +698,31 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		g_debug ("[Job %u]  Env: %s", job_id, *s);
 	for (s = argv + 1; *s; s++)
 		g_debug ("[Job %u]  Arg: %s", job_id, *s);
+
+	/* Set up back-channel pipe */
+	if (pipe (job->backend_backchannel) == -1) {
+		g_warning ("[Job %u] Failed to create back-channel pipe: %s",
+			   job_id, g_strerror (errno));
+		job->back_channel = NULL;
+	} else {
+		job->back_channel = g_io_channel_unix_new (job->backend_backchannel[0]);
+		g_io_channel_set_flags (job->back_channel,
+					G_IO_FLAG_NONBLOCK,
+					NULL);
+		g_io_channel_set_encoding (job->back_channel, NULL, NULL);
+		job->backend_back_io_source = g_io_add_watch (job->back_channel,
+							      G_IO_OUT,
+							      pd_job_impl_backend_io_cb,
+							      job);
+	}
+
 	if (!g_spawn_async_with_pipes ("/" /* wd */,
 				       argv,
 				       envp,
 				       G_SPAWN_DO_NOT_REAP_CHILD |
 				       G_SPAWN_FILE_AND_ARGV_ZERO,
-				       NULL /* child setup */,
-				       NULL /* user data */,
+				       pd_job_impl_backend_setup,
+				       job,
 				       &job->backend_pid,
 				       &stdin_fd,
 				       &stdout_fd,
@@ -671,6 +733,10 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		g_error_free (error);
 		goto out;
 	}
+
+	/* Close the backend's end of the pipe now they've started */
+	close (job->backend_backchannel[1]);
+	job->backend_backchannel[1] = -1;
 
 	job->buflen = 0;
 	job->bufsent = 0;
