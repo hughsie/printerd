@@ -47,6 +47,7 @@ struct _PdEnginePrivate
 	GHashTable	*path_to_device;
 	GHashTable	*id_to_printer;
 	guint		 next_job_id;
+	GHashTable	*id_to_handle;
 };
 
 enum
@@ -67,6 +68,7 @@ pd_engine_finalize (GObject *object)
 	/* note: we don't hold a ref to engine->priv->daemon */
 	g_hash_table_unref (engine->priv->path_to_device);
 	g_hash_table_unref (engine->priv->id_to_printer);
+	g_hash_table_unref (engine->priv->id_to_handle);
 
 	if (G_OBJECT_CLASS (pd_engine_parent_class)->finalize != NULL)
 		G_OBJECT_CLASS (pd_engine_parent_class)->finalize (object);
@@ -138,7 +140,7 @@ pd_engine_device_add (PdEngine *engine,
 	GString *uri = NULL;
 	GString *description = NULL;
 	PdDaemon *daemon;
-	PdObjectSkeleton *device_object;
+	PdObjectSkeleton *device_object = NULL;
 	PdDevice *device = NULL;
 	gchar *mfg;
 	gchar *mdl;
@@ -195,7 +197,6 @@ pd_engine_device_add (PdEngine *engine,
 	pd_object_skeleton_set_device (device_object, device);
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (device_object));
-
 out:
 	if (uri)
 		g_string_free (uri, TRUE);
@@ -204,6 +205,8 @@ out:
 	if (ieee1284_id_fields)
 		g_hash_table_unref (ieee1284_id_fields);
 	g_free (object_path);
+	if (device_object)
+		g_object_unref (device_object);
 	return device;
 }
 
@@ -315,8 +318,8 @@ pd_engine_job_state_notify	(PdJob *job)
 {
 	PdDaemon *daemon;
 	const gchar *printer_path;
-	PdObject *obj;
-	PdPrinter *printer;
+	PdObject *obj = NULL;
+	PdPrinter *printer = NULL;
 	guint job_state, printer_state;
 
 	g_return_if_fail (PD_IS_JOB (job));
@@ -329,6 +332,9 @@ pd_engine_job_state_notify	(PdJob *job)
 	daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
 	printer_path = pd_job_get_printer (job);
 	obj = pd_daemon_find_object (daemon, printer_path);
+	if (!obj)
+		goto out;
+
 	printer = pd_object_get_printer (obj);
 	printer_state = pd_printer_get_state (printer);
 
@@ -346,9 +352,22 @@ pd_engine_job_state_notify	(PdJob *job)
 		}
 
 		break;
+
+	case PD_JOB_STATE_PENDING_HELD:
+		break;
+
 	default:
+		g_signal_handlers_disconnect_by_func (job,
+						      pd_engine_job_state_notify,
+						      job);
 		break;
 	}
+
+ out:
+	if (obj)
+		g_object_unref (obj);
+	if (printer)
+		g_object_unref (printer);
 }
 
 /**
@@ -401,6 +420,12 @@ pd_engine_start	(PdEngine *engine)
 							     g_free,
 							     g_object_unref);
 
+	/* also note which source handles hold a reference to them */
+	engine->priv->id_to_handle = g_hash_table_new_full (g_str_hash,
+							    g_str_equal,
+							    g_free,
+							    (GDestroyNotify) g_variant_unref);
+
 	/* start device scanning (for demo) */
 	devices = g_udev_client_query_by_subsystem (engine->priv->gudev_client,
 						    "usb");
@@ -427,10 +452,11 @@ pd_engine_add_printer	(PdEngine *engine,
 {
 	const gchar *id;
 	GString *objid = NULL;
-	PdObjectSkeleton *printer_object;
+	PdObjectSkeleton *printer_object = NULL;
 	PdPrinter *printer = NULL;
 	gchar *object_path = NULL;
 	PdDaemon *daemon;
+	guint handle;
 
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 
@@ -472,10 +498,13 @@ pd_engine_add_printer	(PdEngine *engine,
 	g_debug ("[Engine] add printer %s", objid->str);
 
 	/* watch for state changes */
-	g_signal_connect (printer,
-			  "notify::state",
-			  G_CALLBACK (pd_engine_printer_state_notify),
-			  printer);
+	handle = g_signal_connect (printer,
+				   "notify::state",
+				   G_CALLBACK (pd_engine_printer_state_notify),
+				   printer);
+	g_hash_table_insert (engine->priv->id_to_handle,
+			     g_strdup (objid->str),
+			     (gpointer) g_variant_ref_sink (g_variant_new_uint32 (handle)));
 
 	/* export on bus */
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
@@ -486,9 +515,61 @@ pd_engine_add_printer	(PdEngine *engine,
 					     G_DBUS_OBJECT_SKELETON (printer_object));
 
  out:
+	if (printer_object)
+		g_object_unref (printer_object);
 	g_string_free (objid, TRUE);
 	g_free (object_path);
 	return printer;
+}
+
+/**
+ * pd_engine_remove_printer:
+ * @engine: A #PdEngine.
+ * @printer_path: An object path.
+ *
+ * Removes the printer.
+ *
+ * Returns: True if the printer was removed.
+ */
+gboolean
+pd_engine_remove_printer	(PdEngine *engine,
+				 const gchar *printer_path)
+{
+	gboolean ret = FALSE;
+	PdDaemon *daemon = pd_engine_get_daemon (engine);
+	PdObject *obj = NULL;
+	PdPrinter *printer = NULL;
+	const gchar *id;
+	GVariant *handle;
+
+	obj = pd_daemon_find_object (daemon, printer_path);
+	if (!obj)
+		goto out;
+
+	printer = pd_object_get_printer (obj);
+	id = pd_printer_impl_get_id (PD_PRINTER_IMPL (printer));
+
+	g_dbus_object_manager_server_unexport (pd_daemon_get_object_manager (daemon),
+					       printer_path);
+	g_hash_table_remove (engine->priv->id_to_printer, id);
+	handle = g_hash_table_lookup (engine->priv->id_to_handle,
+				      id);
+	if (handle) {
+		g_source_remove (g_variant_get_uint32 (handle));
+		g_hash_table_remove (engine->priv->id_to_handle,
+				     id);
+	}
+
+	g_debug ("[Engine] remove printer %s", id);
+	ret = TRUE;
+
+ out:
+	if (obj)
+		g_object_unref (obj);
+	if (printer) {
+		g_object_unref (printer);
+	}
+	return ret;
 }
 
 /**
@@ -527,7 +608,7 @@ pd_engine_add_job	(PdEngine *engine,
 {
 	PdJob *job = NULL;
 	gchar *object_path = NULL;
-	PdObjectSkeleton *job_object;
+	PdObjectSkeleton *job_object = NULL;
 	PdDaemon *daemon;
 	guint job_id;
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
@@ -559,8 +640,54 @@ pd_engine_add_job	(PdEngine *engine,
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (job_object));
 
+	if (job_object)
+		g_object_unref (job_object);
 	g_free (object_path);
 	return job;
+}
+
+/**
+ * pd_engine_remove_job:
+ * @engine: A #PdEngine.
+ * @job_path: An object path.
+ *
+ * Removes the job.
+ *
+ * Returns: True if the job was removed.
+ */
+gboolean
+pd_engine_remove_job	(PdEngine *engine,
+			 const gchar *job_path)
+{
+	gboolean ret = FALSE;
+	PdDaemon *daemon = pd_engine_get_daemon (engine);
+	PdObject *obj = NULL;
+	PdJob *job = NULL;
+	guint job_id;
+
+	obj = pd_daemon_find_object (daemon, job_path);
+	if (!obj)
+		goto out;
+
+	job = pd_object_get_job (obj);
+	job_id = pd_job_get_id (job);
+	g_dbus_object_manager_server_unexport (pd_daemon_get_object_manager (daemon),
+					       job_path);
+
+	g_signal_handlers_disconnect_by_func (job,
+					      pd_engine_job_state_notify,
+					      job);
+
+	g_debug ("[Engine] remove job %u", job_id);
+	ret = TRUE;
+
+ out:
+	if (obj)
+		g_object_unref (obj);
+	if (job) {
+		g_object_unref (job);
+	}
+	return ret;
 }
 
 /**

@@ -314,10 +314,37 @@ out:
 	return TRUE; /* handled the method invocation */
 }
 
+/* runs in thread dedicated to handling @invocation */
+static gboolean
+pd_manager_impl_delete_printer (PdManager *_manager,
+				GDBusMethodInvocation *invocation,
+				GVariant *options,
+				const gchar *printer_path)
+{
+	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
+	PdEngine *engine = pd_daemon_get_engine (manager->daemon);
+
+	g_debug ("[Manager] Deleting printer %s", printer_path);
+
+	if (pd_engine_remove_printer (engine, printer_path))
+		g_dbus_method_invocation_return_value (invocation,
+						       g_variant_new ("()"));
+	else {
+		g_debug ("[Manager] Printer %s not found", printer_path);
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Not found"));
+	}
+
+	return TRUE;
+}
+
 static void
 pd_manager_iface_init (PdManagerIface *iface)
 {
 	iface->handle_get_printers = pd_manager_impl_get_printers;
 	iface->handle_get_devices = pd_manager_impl_get_devices;
 	iface->handle_create_printer = pd_manager_impl_create_printer;
+	iface->handle_delete_printer = pd_manager_impl_delete_printer;
 }

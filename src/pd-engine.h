@@ -75,12 +75,16 @@ PdPrinter	*pd_engine_add_printer		(PdEngine	*engine,
 						 const gchar	*description,
 						 const gchar	*location,
 						 const gchar	*ieee1284_id);
+gboolean	 pd_engine_remove_printer	(PdEngine	*engine,
+						 const gchar	*printer_path);
 PdPrinter	*pd_engine_get_printer_by_path	(PdEngine	*engine,
 						 const gchar	*printer_path);
 PdJob		*pd_engine_add_job		(PdEngine	*engine,
 						 const gchar	*printer_path,
 						 const gchar	*name,
 						 GVariant	*attributes);
+gboolean	 pd_engine_remove_job		(PdEngine	*engine,
+						 const gchar	*job_path);
 G_END_DECLS
 
 #endif /* __PD_ENGINE_H__ */

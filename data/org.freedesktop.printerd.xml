@@ -105,11 +105,13 @@
     <!--
         DeletePrinter:
         @options: Options (currently unused).
+	@printer: The object path of the printer.
 
         Deletes a printer object.
     -->
     <method name="DeletePrinter">
       <arg name="options" direction="in" type="a{sv}"/>
+      <arg name="printer_path" direction="in" type="o"/>
     </method>
   </interface>
 

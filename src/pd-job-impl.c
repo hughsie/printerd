@@ -105,6 +105,8 @@ static void
 pd_job_impl_finalize (GObject *object)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
+	guint job_id = pd_job_get_id (PD_JOB (job));
+	g_debug ("[Job %u] Finalize", job_id);
 	/* note: we don't hold a reference to job->daemon */
 	g_free (job->name);
 	if (job->document_fd != -1)
@@ -115,8 +117,12 @@ pd_job_impl_finalize (GObject *object)
 	}
 	g_hash_table_unref (job->attributes);
 	g_hash_table_unref (job->state_reasons);
-	if (job->backend_pid != -1)
+	if (job->backend_pid != -1) {
+		g_debug ("[Job %u] Sending signal 9 to PID %d",
+			 job_id, job->backend_pid);
+		kill (job->backend_pid, 9);
 		g_spawn_close_pid (job->backend_pid);
+	}
 	if (job->backend_watch_source != 0)
 		g_source_remove (job->backend_watch_source);
 	if (job->backend_in_io_source != 0)
@@ -127,6 +133,9 @@ pd_job_impl_finalize (GObject *object)
 		g_io_channel_unref (job->stderr_channel);
 	if (job->stdin_channel)
 		g_io_channel_unref (job->stdin_channel);
+	g_signal_handlers_disconnect_by_func (job,
+					      pd_job_impl_job_state_notify,
+					      job);
 	G_OBJECT_CLASS (pd_job_impl_parent_class)->finalize (object);
 }
 
@@ -727,6 +736,10 @@ pd_job_impl_job_state_notify (PdJobImpl *job)
 		pd_job_impl_remove_state_reason (job, "job-incoming");
 		pd_job_impl_remove_state_reason (job,
 						 "processing-to-stop-point");
+
+		g_signal_handlers_disconnect_by_func (job,
+						      pd_job_impl_job_state_notify,
+						      job);
 	default:
 		;
 	}
@@ -1029,7 +1042,7 @@ pd_job_impl_cancel (PdJob *_job,
 		if (job->stdin_channel != NULL) {
 			/* Stop sending data to the backend. */
 			g_debug ("[Job %u] Stop sending data to the backend",
-				 pd_job_get_id (PD_JOB (job)));
+				 job_id);
 			g_io_channel_shutdown (job->stdin_channel, TRUE, NULL);
 			g_io_channel_unref (job->stdin_channel);
 			job->stdin_channel = NULL;
@@ -1037,8 +1050,11 @@ pd_job_impl_cancel (PdJob *_job,
 		}
 
 		/* Simple implementation for now: just kill the backend */
-		if (job->backend_pid != -1)
+		if (job->backend_pid != -1) {
+			g_debug ("[Job %u] Sending signal 9 to PID %d",
+				 job_id, job->backend_pid);
 			kill (job->backend_pid, 9);
+		}
 
 		g_dbus_method_invocation_return_value (invocation,
 						       g_variant_new ("()"));

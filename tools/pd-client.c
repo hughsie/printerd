@@ -336,7 +336,7 @@ print_files (const char *printer_id,
 		g_variant_unref (unsupported);
 	if (pd_printer)
 		g_object_unref (pd_printer);
-	if (pd_job != NULL)
+	if (pd_job)
 		g_object_unref (pd_job);
 	return ret;
 }
@@ -439,6 +439,48 @@ create_printer (const gchar *name,
 	}
 
 	g_debug ("Printer path is %s\n", printer_path);
+	ret = 0;
+ out:
+	if (pd_manager)
+		g_object_unref (pd_manager);
+	g_free (printer_path);
+	return ret;
+}
+
+static gint
+delete_printer (const gchar *name)
+{
+	gint ret = 1;
+	GError *error = NULL;
+	PdManager *pd_manager = NULL;
+	gchar *printer_path = NULL;
+	GVariantBuilder options;
+
+	pd_manager = pd_manager_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+							G_DBUS_PROXY_FLAGS_NONE,
+							"org.freedesktop.printerd",
+							"/org/freedesktop/printerd/Manager",
+							NULL,
+							&error);
+	if (!pd_manager) {
+		g_printerr ("Error getting manager: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	printer_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
+					name);
+	g_variant_builder_init (&options, G_VARIANT_TYPE ("a{sv}"));
+	if (!pd_manager_call_delete_printer_sync (pd_manager,
+						  g_variant_builder_end (&options),
+						  printer_path,
+						  NULL,
+						  &error)) {
+		g_printerr ("Error deleting printer: %s\n", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
 	ret = 0;
  out:
 	if (pd_manager)
@@ -556,6 +598,16 @@ main (int argc, char **argv)
 
 		ret = create_printer ((const gchar *) argv[2],
 				      (const gchar *) argv[3]);
+	} else if (!strcmp (argv[1], "delete-printer")) {
+		if (argc != 3) {
+			g_print ("%s",
+				 g_option_context_get_help (opt_context,
+							    TRUE,
+							    NULL));
+			goto out;
+		}
+
+		ret = delete_printer ((const gchar *) argv[2]);
 	} else if (!strcmp (argv[1], "cancel-job")) {
 		if (argc != 3) {
 			g_print ("%s",

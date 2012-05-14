@@ -81,6 +81,7 @@ enum
 };
 
 static void pd_printer_iface_init (PdPrinterIface *iface);
+static void pd_printer_impl_job_state_notify (PdJob *job);
 
 G_DEFINE_TYPE_WITH_CODE (PdPrinterImpl, pd_printer_impl, PD_TYPE_PRINTER_SKELETON,
 			 G_IMPLEMENT_INTERFACE (PD_TYPE_PRINTER, pd_printer_iface_init));
@@ -88,9 +89,32 @@ G_DEFINE_TYPE_WITH_CODE (PdPrinterImpl, pd_printer_impl, PD_TYPE_PRINTER_SKELETO
 /* ------------------------------------------------------------------ */
 
 static void
+pd_printer_impl_remove_job (gpointer data,
+			    gpointer user_data)
+{
+	PdJob *job = data;
+	PdDaemon *daemon;
+	PdEngine *engine;
+	gchar *job_path = NULL;
+
+	daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
+	engine = pd_daemon_get_engine (daemon);
+
+	g_signal_handlers_disconnect_by_func (job,
+					      pd_printer_impl_job_state_notify,
+					      job);
+
+	job_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
+				    pd_job_get_id (job));
+	pd_engine_remove_job (engine, job_path);
+}
+
+static void
 pd_printer_impl_finalize (GObject *object)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
+
+	g_debug ("[Printer %s] Finalize", printer->id);
 	/* note: we don't hold a reference to printer->daemon */
 	g_free (printer->name);
 	g_free (printer->description);
@@ -99,6 +123,9 @@ pd_printer_impl_finalize (GObject *object)
 	g_hash_table_unref (printer->defaults);
 	g_hash_table_unref (printer->supported);
 	g_hash_table_unref (printer->state_reasons);
+	g_ptr_array_foreach (printer->jobs,
+			     pd_printer_impl_remove_job,
+			     NULL);
 	g_ptr_array_free (printer->jobs, TRUE);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
@@ -616,12 +643,15 @@ pd_printer_impl_job_state_notify (PdJob *job)
 {
 	const gchar *printer_path;
 	PdDaemon *daemon;
-	PdObject *obj;
-	PdPrinter *printer;
+	PdObject *obj = NULL;
+	PdPrinter *printer = NULL;
 
 	printer_path = pd_job_get_printer (job);
 	daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
 	obj = pd_daemon_find_object (daemon, printer_path);
+	if (!obj)
+		goto out;
+
 	printer = pd_object_get_printer (obj);
 
 	switch (pd_job_get_state (job)) {
@@ -635,6 +665,12 @@ pd_printer_impl_job_state_notify (PdJob *job)
 					      PD_PRINTER_STATE_IDLE);
 		break;
 	}
+
+ out:
+	if (obj)
+		g_object_unref (obj);
+	if (printer)
+		g_object_unref (printer);
 }
 
 static void
