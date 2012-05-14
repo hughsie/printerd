@@ -65,9 +65,11 @@ struct _PdJobImpl
 	gchar		*document_filename;
 	GPid		 backend_pid;
 	guint		 backend_watch_source;
+	guint		 document_io_source;
 	guint		 backend_in_io_source;
 	guint		 backend_out_io_source;
 	guint		 backend_back_io_source;
+	GIOChannel	*document_channel;
 	GIOChannel	*stdin_channel;
 	GIOChannel	*stderr_channel;
 	GIOChannel	*back_channel;
@@ -98,6 +100,12 @@ static void pd_job_impl_add_state_reason (PdJobImpl *job,
 static void pd_job_impl_remove_state_reason (PdJobImpl *job,
 					     const gchar *reason);
 static void pd_job_impl_job_state_notify (PdJobImpl *job);
+static gboolean pd_job_impl_document_io_cb (GIOChannel *channel,
+					    GIOCondition condition,
+					    gpointer data);
+static gboolean pd_job_impl_backend_io_cb (GIOChannel *channel,
+					   GIOCondition condition,
+					   gpointer data);
 
 G_DEFINE_TYPE_WITH_CODE (PdJobImpl, pd_job_impl, PD_TYPE_JOB_SKELETON,
 			 G_IMPLEMENT_INTERFACE (PD_TYPE_JOB, pd_job_iface_init));
@@ -132,10 +140,22 @@ pd_job_impl_finalize (GObject *object)
 		g_source_remove (job->backend_in_io_source);
 	if (job->backend_out_io_source != 0)
 		g_source_remove (job->backend_out_io_source);
-	if (job->stderr_channel)
-		g_io_channel_unref (job->stderr_channel);
-	if (job->stdin_channel)
+	if (job->document_channel) {
+		g_io_channel_shutdown (job->document_channel, FALSE, NULL);
+		g_io_channel_unref (job->document_channel);
+	}
+	if (job->stdin_channel) {
+		g_io_channel_shutdown (job->stdin_channel, FALSE, NULL);
 		g_io_channel_unref (job->stdin_channel);
+	}
+	if (job->stderr_channel) {
+		g_io_channel_shutdown (job->stderr_channel, FALSE, NULL);
+		g_io_channel_unref (job->stderr_channel);
+	}
+	if (job->back_channel) {
+		g_io_channel_shutdown (job->back_channel, FALSE, NULL);
+		g_io_channel_unref (job->back_channel);
+	}
 	g_signal_handlers_disconnect_by_func (job,
 					      pd_job_impl_job_state_notify,
 					      job);
@@ -430,21 +450,9 @@ pd_job_impl_backend_watch_cb (GPid pid,
 
 	/* Close file descriptors */
 	if (job->stdin_channel) {
-		close (g_io_channel_unix_get_fd (job->stdin_channel));
+		g_io_channel_shutdown (job->stdin_channel, FALSE, NULL);
 		g_io_channel_unref (job->stdin_channel);
 		job->stdin_channel = NULL;
-	}
-
-	if (job->stderr_channel) {
-		close (g_io_channel_unix_get_fd (job->stderr_channel));
-		g_io_channel_unref (job->stderr_channel);
-		job->stderr_channel = NULL;
-	}
-
-	if (job->back_channel) {
-		close (g_io_channel_unix_get_fd (job->back_channel));
-		g_io_channel_unref (job->back_channel);
-		job->back_channel = NULL;
 	}
 }
 
@@ -486,6 +494,66 @@ pd_job_impl_parse_stderr (PdJobImpl *job,
 }
 
 static gboolean
+pd_job_impl_document_io_cb (GIOChannel *channel,
+			    GIOCondition condition,
+			    gpointer data)
+{
+	GError *error = NULL;
+	gint keep_source = TRUE;
+	PdJobImpl *job = PD_JOB_IMPL (data);
+	guint job_id = pd_job_get_id (PD_JOB (job));
+	GIOStatus status;
+	gsize got;
+
+	g_assert (condition == G_IO_IN);
+	g_assert (channel == job->document_channel);
+	if (job->buflen - job->bufsent > 0)
+		/* Don't bother unless our buffer is empty */
+		goto out;
+
+	/* Read more from spool */
+	status = g_io_channel_read_chars (channel,
+					  job->buffer,
+					  sizeof (job->buffer),
+					  &got,
+					  &error);
+	switch (status) {
+	case G_IO_STATUS_NORMAL:
+		job->buflen = got;
+		job->bufsent = 0;
+		g_debug ("[Job %u] Read %zu bytes from spool file",
+			 job_id, got);
+		job->backend_in_io_source = g_io_add_watch (job->stdin_channel,
+							    G_IO_OUT,
+							    pd_job_impl_backend_io_cb,
+							    job);
+		keep_source = FALSE;
+		job->document_io_source = -1;
+		break;
+
+	case G_IO_STATUS_EOF:
+		g_debug ("[Job %u] Spool finished", job_id);
+		g_io_channel_shutdown (channel, TRUE, NULL);
+		g_io_channel_unref (channel);
+		job->document_channel = NULL;
+		keep_source = FALSE;
+		goto out;
+
+	case G_IO_STATUS_ERROR:
+		g_warning ("[Job %u] read() from spool: %s",
+			   job_id,
+			   g_strerror (errno));
+		break;
+
+	case G_IO_STATUS_AGAIN:
+		break;
+	}
+
+ out:
+	return keep_source;
+}
+
+static gboolean
 pd_job_impl_backend_io_cb (GIOChannel *channel,
 			   GIOCondition condition,
 			   gpointer data)
@@ -498,9 +566,8 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 	gchar *line = NULL;
 	gsize got, wrote;
 
-	if (condition == G_IO_IN) {
+	if (condition == G_IO_IN || condition == G_IO_HUP) {
 		/* Read messages from backend */
-		g_assert (channel == job->stderr_channel);
 		while ((status = g_io_channel_read_line (channel,
 							 &line,
 							 &got,
@@ -527,7 +594,22 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 			g_error_free (error);
 			goto out;
 		case G_IO_STATUS_EOF:
-			g_debug ("[Job %u] Backend stderr closed", job_id);
+			g_io_channel_shutdown (channel, FALSE, NULL);
+			g_io_channel_unref (channel);
+			if (channel == job->stderr_channel) {
+				g_debug ("[Job %u] Backend stderr closed",
+					 job_id);
+				job->stderr_channel = NULL;
+				job->backend_out_io_source = -1;
+			} else {
+				g_assert (channel == job->back_channel);
+				g_debug ("[Job %u] Backend back-channel closed",
+					 job_id);
+				job->back_channel = NULL;
+				job->backend_back_io_source = -1;
+			}
+
+			keep_source = FALSE;
 			break;
 		case G_IO_STATUS_AGAIN:
 			/* End of messages for now */
@@ -541,33 +623,9 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 		/* Send data to backend */
 		g_assert (channel == job->stdin_channel);
 
-		if (job->buflen - job->bufsent == 0) {
-			/* Read more from spool */
-			ssize_t got = read (job->document_fd,
-					    job->buffer,
-					    sizeof (job->buffer));
-			if (got < 1) {
-				if (got == -1)
-					g_warning ("[Job %u] read() from spool: %s",
-						   job_id,
-						   g_strerror (errno));
-
-				g_debug ("[Job %u] Spool finished", job_id);
-				close (job->document_fd);
-				job->document_fd = -1;
-				g_io_channel_shutdown (channel, TRUE, NULL);
-				g_io_channel_unref (channel);
-				job->stdin_channel = NULL;
-				keep_source = FALSE;
-				goto out;
-			}
-
-			job->buflen = got;
-			job->bufsent = 0;
-
-			g_debug ("[Job %u] Read %zu bytes from spool file",
-				 job_id, got);
-		}
+		if (job->buflen - job->bufsent == 0)
+			/* Nothing to send */
+			goto out;
 
 		status = g_io_channel_write_chars (channel,
 						   job->buffer + job->bufsent,
@@ -594,6 +652,15 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 		}
 
 		job->bufsent += wrote;
+
+		if (job->buflen - job->bufsent == 0) {
+			keep_source = FALSE;
+			job->backend_in_io_source = -1;
+			job->document_io_source = g_io_add_watch (job->document_channel,
+								  G_IO_IN,
+								  pd_job_impl_document_io_cb,
+								  job);
+		}
 	}
 
  out:
@@ -608,13 +675,13 @@ pd_job_impl_backend_setup (gpointer user_data)
 	PdJobImpl *job = PD_JOB_IMPL (user_data);
 
 	/* Set our writable back-channel to a known fd */
-	if (job->backend_backchannel[0] != 3) {
-		dup2 (job->backend_backchannel[0], 3);
-		close (job->backend_backchannel[0]);
+	if (job->backend_backchannel[1] != 3) {
+		dup2 (job->backend_backchannel[1], 3);
+		close (job->backend_backchannel[1]);
 	}
 
 	/* Close the parent's end of the pipe */
-	close (job->backend_backchannel[1]);
+	close (job->backend_backchannel[0]);
 }
 
 /**
@@ -638,7 +705,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	char **argv = NULL;
 	char **envp = NULL;
 	gchar **s;
-	gint stdin_fd, stdout_fd, stderr_fd;
+	gint document_fd, stdin_fd, stdout_fd, stderr_fd;
 
 	if (job->backend_pid != -1) {
 		g_warning ("[Job %u] Already processing!", job_id);
@@ -711,7 +778,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 					NULL);
 		g_io_channel_set_encoding (job->back_channel, NULL, NULL);
 		job->backend_back_io_source = g_io_add_watch (job->back_channel,
-							      G_IO_OUT,
+							      G_IO_IN | G_IO_HUP,
 							      pd_job_impl_backend_io_cb,
 							      job);
 	}
@@ -740,8 +807,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	job->buflen = 0;
 	job->bufsent = 0;
-	job->document_fd = open (job->document_filename, O_RDONLY);
-	if (job->document_fd == -1) {
+	document_fd = open (job->document_filename, O_RDONLY);
+	if (document_fd == -1) {
 		g_error ("[Job %u] Failed to open spool file %s: %s",
 			 job_id, job->document_filename, g_strerror (errno));
 
@@ -751,6 +818,13 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto out;
 	}
 
+	job->document_channel = g_io_channel_unix_new (document_fd);
+	g_io_channel_set_encoding (job->document_channel, NULL, NULL);
+	job->document_io_source = g_io_add_watch (job->document_channel,
+						  G_IO_IN,
+						  pd_job_impl_document_io_cb,
+						  job);
+
 	job->backend_watch_source = g_child_watch_add (job->backend_pid,
 						       pd_job_impl_backend_watch_cb,
 						       job);
@@ -758,7 +832,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	job->stderr_channel = g_io_channel_unix_new (stderr_fd);
 	g_io_channel_set_flags (job->stderr_channel, G_IO_FLAG_NONBLOCK, NULL);
 	job->backend_out_io_source = g_io_add_watch (job->stderr_channel,
-						     G_IO_IN,
+						     G_IO_IN | G_IO_HUP,
 						     pd_job_impl_backend_io_cb,
 						     job);
 
@@ -767,10 +841,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	g_io_channel_set_encoding (job->stdin_channel, NULL, NULL);
 	g_io_channel_set_buffer_size (job->stdin_channel,
 				      sizeof (job->buffer));
-	job->backend_in_io_source = g_io_add_watch (job->stdin_channel,
-						    G_IO_OUT,
-						    pd_job_impl_backend_io_cb,
-						    job);
+	job->backend_in_io_source = -1;
  out:
 	g_strfreev (argv);
 	g_strfreev (envp);
@@ -1109,10 +1180,10 @@ pd_job_impl_cancel (PdJob *_job,
 			/* Stop sending data to the backend. */
 			g_debug ("[Job %u] Stop sending data to the backend",
 				 job_id);
+			g_source_remove (job->backend_in_io_source);
 			g_io_channel_shutdown (job->stdin_channel, TRUE, NULL);
 			g_io_channel_unref (job->stdin_channel);
 			job->stdin_channel = NULL;
-			g_source_remove (job->backend_in_io_source);
 		}
 
 		/* Simple implementation for now: just kill the backend */
