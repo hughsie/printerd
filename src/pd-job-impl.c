@@ -82,6 +82,7 @@ struct _PdJobImpl
 	gsize		 buflen;
 	gsize		 bufsent;
 
+	struct _PdJobProcess arranger;
 	struct _PdJobProcess backend;
 };
 
@@ -139,8 +140,24 @@ pd_job_impl_finalize (GObject *object)
 	if (job->document_channel)
 		g_io_channel_unref (job->document_channel);
 
+	/* Shut down arranger */
+	if (job->arranger.pid != -1) {
+		g_debug ("[Job %u] Sending signal 9 to arranger PID %d",
+			 job_id, job->arranger.pid);
+	}
+
+	if (job->arranger.process_watch_source != 0)
+		g_source_remove (job->arranger.process_watch_source);
+	for (i = 0; i <= 3; i++)
+		if (job->arranger.io_source[i] != -1)
+			g_source_remove (job->arranger.io_source[i]);
+	for (i = 0; i <= 3; i++)
+		if (job->arranger.channel[i])
+			g_io_channel_unref (job->arranger.channel[i]);
+
+	/* Shut down backend */
 	if (job->backend.pid != -1) {
-		g_debug ("[Job %u] Sending signal 9 to PID %d",
+		g_debug ("[Job %u] Sending signal 9 to backend PID %d",
 			 job_id, job->backend.pid);
 		kill (job->backend.pid, 9);
 		g_spawn_close_pid (job->backend.pid);
@@ -255,10 +272,14 @@ pd_job_impl_init (PdJobImpl *job)
 					     G_DBUS_INTERFACE_SKELETON_FLAGS_HANDLE_METHOD_INVOCATIONS_IN_THREAD);
 
 	job->document_fd = -1;
-	job->backend.pid = -1;
 
+	job->backend.pid = -1;
 	for (i = 0; i <= 3; i++)
 		job->backend.io_source[i] = -1;
+
+	job->arranger.pid = -1;
+	for (i = 0; i <= 3; i++)
+		job->arranger.io_source[i] = -1;
 
 	job->attributes = g_hash_table_new_full (g_str_hash,
 						 g_str_equal,
@@ -682,18 +703,129 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 }
 
 static void
-pd_job_impl_backend_setup (gpointer user_data)
+pd_job_impl_process_setup (gpointer user_data)
 {
-	PdJobImpl *job = PD_JOB_IMPL (user_data);
+	struct _PdJobProcess *jp = (struct _PdJobProcess *) user_data;
 
 	/* Set our writable back-channel to a known fd */
-	if (job->backend.backchannel_fds[1] != 3) {
-		dup2 (job->backend.backchannel_fds[1], 3);
-		close (job->backend.backchannel_fds[1]);
+	if (jp->backchannel_fds[1] != 3) {
+		dup2 (jp->backchannel_fds[1], 3);
+		close (jp->backchannel_fds[1]);
 	}
 
 	/* Close the parent's end of the pipe */
-	close (job->backend.backchannel_fds[0]);
+	close (jp->backchannel_fds[0]);
+}
+
+static gboolean
+pd_job_impl_run_process (PdJobImpl *job,
+			 const gchar *cmd,
+			 struct _PdJobProcess *jp,
+			 GError **error)
+{
+	gboolean ret = FALSE;
+	guint job_id = pd_job_get_id (PD_JOB (job));
+	gchar *username;
+	GVariant *variant;
+	const gchar *uri;
+	char **argv = NULL;
+	char **envp = NULL;
+	gint process_fd[3];
+	gchar **s;
+	gint i;
+
+	uri = pd_job_get_device_uri (PD_JOB (job));
+	variant = g_hash_table_lookup (job->attributes,
+				       "job-originating-user-name");
+	if (variant) {
+		username = g_variant_dup_string (variant, NULL);
+		/* no need to free variant: we don't own a reference */
+	} else
+		username = g_strdup ("unknown");
+
+	argv = g_malloc0 (sizeof (char *) * 8);
+	argv[0] = g_strdup (cmd);
+	/* URI */
+	argv[1] = g_strdup (uri);
+	/* Job ID */
+	argv[2] = g_strdup_printf ("%u", job_id);
+	/* User name */
+	argv[3] = username;
+	/* Job title */
+	argv[4] = g_strdup_printf ("job %u", job_id);
+	/* Copies */
+	argv[5] = g_strdup ("1");
+	/* Options */
+	argv[6] = g_strdup ("");
+	argv[7] = NULL;
+
+	envp = g_malloc0 (sizeof (char *) * 2);
+	envp[0] = g_strdup_printf ("DEVICE_URI=%s", uri);
+	envp[1] = NULL;
+
+	g_debug ("[Job %u] Executing %s", job_id, argv[0]);
+	for (s = envp; *s; s++)
+		g_debug ("[Job %u]  Env: %s", job_id, *s);
+	for (s = argv + 1; *s; s++)
+		g_debug ("[Job %u]  Arg: %s", job_id, *s);
+
+	/* Set up back-channel pipe */
+	if (pipe (jp->backchannel_fds) == -1) {
+		g_set_error (error,
+			     PD_ERROR,
+			     PD_ERROR_FAILED,
+			     "Failed to create back-channel pipe: %s",
+			     g_strerror (errno));
+		goto out;
+	}
+
+	jp->channel[3] = g_io_channel_unix_new (jp->backchannel_fds[0]);
+	g_io_channel_set_flags (jp->channel[3],
+				G_IO_FLAG_NONBLOCK,
+				NULL);
+	g_io_channel_set_close_on_unref (jp->channel[3],
+					 TRUE);
+	g_io_channel_set_encoding (jp->channel[3], NULL, NULL);
+
+	ret = g_spawn_async_with_pipes ("/" /* wd */,
+					argv,
+					envp,
+					G_SPAWN_DO_NOT_REAP_CHILD |
+					G_SPAWN_FILE_AND_ARGV_ZERO,
+					pd_job_impl_process_setup,
+					job,
+					&jp->pid,
+					&process_fd[STDIN_FILENO],
+					&process_fd[STDOUT_FILENO],
+					&process_fd[STDERR_FILENO],
+					error);
+	if (!ret)
+		goto out;
+
+	/* Close the backend's end of the pipe now they've started */
+	close (jp->backchannel_fds[1]);
+	jp->backchannel_fds[1] = -1;
+
+	/* Set up IO channels */
+	for (i = 0; i < 3; i++) {
+		GIOChannel *channel = g_io_channel_unix_new (process_fd[i]);
+		g_io_channel_set_flags (channel,
+					G_IO_FLAG_NONBLOCK,
+					NULL);
+		g_io_channel_set_close_on_unref (channel,
+						 TRUE);
+		if (i == STDIN_FILENO)
+			g_io_channel_set_encoding (channel,
+						   NULL,
+						   NULL);
+
+		job->backend.channel[i] = channel;
+	}
+
+ out:
+	g_strfreev (argv);
+	g_strfreev (envp);
+	return ret;
 }
 
 /**
@@ -710,14 +842,9 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	guint job_id = pd_job_get_id (PD_JOB (job));
 	const gchar *printer_path;
 	const gchar *uri;
-	gchar *username;
-	GVariant *variant;
 	PdPrinter *printer = NULL;
 	char *scheme = NULL;
-	char **argv = NULL;
-	char **envp = NULL;
-	gchar **s;
-	gint stdin_fd, stdout_fd, stderr_fd;
+	gchar *cmd = NULL;
 	GIOChannel *channel;
 
 	if (job->backend.pid != -1) {
@@ -737,6 +864,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	if (!printer) {
 		g_warning ("[Job %u] Incorrect printer path %s",
 			   job_id, printer_path);
+		pd_job_set_state (PD_JOB (job),
+				  PD_JOB_STATE_ABORTED);
 		goto out;
 	}
 
@@ -745,80 +874,50 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	pd_job_set_device_uri (PD_JOB (job), uri);
 	scheme = g_uri_parse_scheme (uri);
 
-	variant = g_hash_table_lookup (job->attributes,
-				       "job-originating-user-name");
-	if (variant) {
-		username = g_variant_dup_string (variant, NULL);
-		/* no need to free variant: we don't own a reference */
-	} else
-		username = g_strdup ("unknown");
-
-	argv = g_malloc0 (sizeof (char *) * 8);
-	argv[0] = g_strdup_printf ("/usr/lib/cups/backend/%s", scheme);
-	/* URI */
-	argv[1] = g_strdup (uri);
-	/* Job ID */
-	argv[2] = g_strdup_printf ("%u", pd_job_get_id (PD_JOB (job)));
-	/* User name */
-	argv[3] = username;
-	/* Job title */
-	argv[4] = g_strdup_printf ("job %u", pd_job_get_id (PD_JOB (job)));
-	/* Copies */
-	argv[5] = g_strdup ("1");
-	/* Options */
-	argv[6] = g_strdup ("");
-	argv[7] = NULL;
-
-	envp = g_malloc0 (sizeof (char *) * 2);
-	envp[0] = g_strdup_printf ("DEVICE_URI=%s", uri);
-	envp[1] = NULL;
-
-	g_debug ("[Job %u] Executing %s", job_id, argv[0]);
-	for (s = envp; *s; s++)
-		g_debug ("[Job %u]  Env: %s", job_id, *s);
-	for (s = argv + 1; *s; s++)
-		g_debug ("[Job %u]  Arg: %s", job_id, *s);
-
-	/* Set up back-channel pipe */
-	if (pipe (job->backend.backchannel_fds) == -1) {
-		g_warning ("[Job %u] Failed to create back-channel pipe: %s",
-			   job_id, g_strerror (errno));
-		job->backend.channel[3] = NULL;
-	} else {
-		job->backend.channel[3] = g_io_channel_unix_new (job->backend.backchannel_fds[0]);
-		g_io_channel_set_flags (job->backend.channel[3],
-					G_IO_FLAG_NONBLOCK,
-					NULL);
-		g_io_channel_set_close_on_unref (job->backend.channel[3], TRUE);
-		g_io_channel_set_encoding (job->backend.channel[3], NULL, NULL);
-		job->backend.io_source[3] = g_io_add_watch (job->backend.channel[3],
-							      G_IO_IN | G_IO_HUP,
-							      pd_job_impl_backend_io_cb,
-							      job);
-	}
-
-	if (!g_spawn_async_with_pipes ("/" /* wd */,
-				       argv,
-				       envp,
-				       G_SPAWN_DO_NOT_REAP_CHILD |
-				       G_SPAWN_FILE_AND_ARGV_ZERO,
-				       pd_job_impl_backend_setup,
-				       job,
-				       &job->backend.pid,
-				       &stdin_fd,
-				       &stdout_fd,
-				       &stderr_fd,
-				       &error)) {
-		g_warning ("[Job %u] Failed to start backend: %s",
-			   job_id, error->message);
+	/* Run backend */
+	cmd = g_strdup_printf ("/usr/lib/cups/backend/%s", scheme);
+	if (!pd_job_impl_run_process (job, cmd, &job->backend, &error)) {
+		g_error ("[Job %u] Running backend: %s",
+			 job_id, error->message);
 		g_error_free (error);
+
+		/* Update job state */
+		pd_job_set_state (PD_JOB (job),
+				  PD_JOB_STATE_ABORTED);
 		goto out;
 	}
 
-	/* Close the backend's end of the pipe now they've started */
-	close (job->backend.backchannel_fds[1]);
-	job->backend.backchannel_fds[1] = -1;
+	job->backend.process_watch_source = 
+		g_child_watch_add (job->backend.pid,
+				   pd_job_impl_backend_watch_cb,
+				   job);
 
+	job->backend.io_source[STDIN_FILENO] = -1;
+
+	channel = job->backend.channel[STDOUT_FILENO];
+	job->backend.io_source[STDOUT_FILENO] =
+		g_io_add_watch (channel,
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_backend_io_cb,
+				job);
+
+	channel = job->backend.channel[STDERR_FILENO];
+	job->backend.io_source[STDERR_FILENO] =
+		g_io_add_watch (channel,
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_backend_io_cb,
+				job);
+
+	job->backend.io_source[3] =
+		g_io_add_watch (job->backend.channel[3],
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_backend_io_cb,
+				job);
+
+	/* Send document */
 	job->buflen = 0;
 	job->bufsent = 0;
 	job->document_channel = g_io_channel_new_file (job->document_filename,
@@ -835,66 +934,11 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto out;
 	}
 
-	g_io_channel_set_encoding (job->document_channel, NULL, NULL);
-	job->document_io_source = g_io_add_watch (job->document_channel,
-						  G_IO_IN,
-						  pd_job_impl_document_io_cb,
-						  job);
-
-	job->backend.process_watch_source = g_child_watch_add (job->backend.pid,
-							       pd_job_impl_backend_watch_cb,
-							       job);
-
-	channel = g_io_channel_unix_new (stdout_fd);
-	g_io_channel_set_flags (channel,
-				G_IO_FLAG_NONBLOCK,
-				NULL);
-	g_io_channel_set_close_on_unref (channel,
-					 TRUE);
-	job->backend.channel[STDOUT_FILENO] = channel;
-	job->backend.io_source[STDOUT_FILENO] =
-		g_io_add_watch (channel,
-				G_IO_IN |
-				G_IO_HUP,
-				pd_job_impl_backend_io_cb,
-				job);
-
-	channel = g_io_channel_unix_new (stderr_fd);
-	g_io_channel_set_flags (channel,
-				G_IO_FLAG_NONBLOCK,
-				NULL);
-	g_io_channel_set_close_on_unref (channel,
-					 TRUE);
-	job->backend.channel[STDERR_FILENO] = channel;
-	job->backend.io_source[STDERR_FILENO] =
-		g_io_add_watch (channel,
-				G_IO_IN |
-				G_IO_HUP,
-				pd_job_impl_backend_io_cb,
-				job);
-
-	channel = g_io_channel_unix_new (stdin_fd);
-	g_io_channel_set_flags (channel,
-				G_IO_FLAG_NONBLOCK,
-				NULL);
-	g_io_channel_set_close_on_unref (channel,
-					 TRUE);
-	g_io_channel_set_encoding (channel,
-				   NULL,
-				   NULL);
-	g_io_channel_set_buffer_size (channel,
-				      sizeof (job->buffer));
-	job->backend.channel[STDIN_FILENO] = channel;
-
-	/* Wait until we have data to send */
-	job->backend.io_source[STDIN_FILENO] = -1;
-
  out:
-	g_strfreev (argv);
-	g_strfreev (envp);
 	if (printer)
 		g_object_unref (printer);
 	g_free (scheme);
+	g_free (cmd);
 }
 
 static void
