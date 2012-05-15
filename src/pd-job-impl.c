@@ -50,13 +50,18 @@ typedef struct _PdJobImplClass	PdJobImplClass;
 
 struct _PdJobProcess
 {
-	GPid pid;
-	guint process_watch_source;
+	GPid		 pid;
+	guint		 process_watch_source;
 
-	guint io_source[4];
-	GIOChannel *channel[4];
+	guint		 io_source[4];
+	GIOChannel	*channel[4];
 
-	gint backchannel_fds[2];
+	gint		 backchannel_fds[2];
+
+	/* Data ready to send to this process */
+	gchar		 buffer[1024];
+	gsize		 buflen;
+	gsize		 bufsent;
 };
 
 /**
@@ -77,10 +82,6 @@ struct _PdJobImpl
 	gchar		*document_filename;
 	guint		 document_io_source;
 	GIOChannel	*document_channel;
-
-	gchar		 buffer[1024];
-	gsize		 buflen;
-	gsize		 bufsent;
 
 	struct _PdJobProcess arranger;
 	struct _PdJobProcess backend;
@@ -106,12 +107,12 @@ static void pd_job_impl_add_state_reason (PdJobImpl *job,
 static void pd_job_impl_remove_state_reason (PdJobImpl *job,
 					     const gchar *reason);
 static void pd_job_impl_job_state_notify (PdJobImpl *job);
-static gboolean pd_job_impl_document_io_cb (GIOChannel *channel,
-					    GIOCondition condition,
-					    gpointer data);
-static gboolean pd_job_impl_backend_io_cb (GIOChannel *channel,
+static gboolean pd_job_impl_message_io_cb (GIOChannel *channel,
 					   GIOCondition condition,
 					   gpointer data);
+static gboolean pd_job_impl_data_io_cb (GIOChannel *channel,
+					GIOCondition condition,
+					gpointer data);
 
 G_DEFINE_TYPE_WITH_CODE (PdJobImpl, pd_job_impl, PD_TYPE_JOB_SKELETON,
 			 G_IMPLEMENT_INTERFACE (PD_TYPE_JOB, pd_job_iface_init));
@@ -144,6 +145,8 @@ pd_job_impl_finalize (GObject *object)
 	if (job->arranger.pid != -1) {
 		g_debug ("[Job %u] Sending signal 9 to arranger PID %d",
 			 job_id, job->arranger.pid);
+		kill (job->arranger.pid, 9);
+		g_spawn_close_pid (job->arranger.pid);
 	}
 
 	if (job->arranger.process_watch_source != 0)
@@ -444,6 +447,25 @@ pd_job_impl_remove_state_reason (PdJobImpl *job,
 }
 
 static void
+pd_job_impl_arranger_watch_cb (GPid pid,
+			       gint status,
+			       gpointer user_data)
+{
+	PdJobImpl *job = PD_JOB_IMPL (user_data);
+	guint job_id = pd_job_get_id (PD_JOB (job));
+	g_spawn_close_pid (pid);
+	job->arranger.pid = -1;
+	g_debug ("[Job %u] Arranger finished with status %d",
+		 job_id, WEXITSTATUS (status));
+
+	/* Close file descriptors */
+	if (job->arranger.channel[STDIN_FILENO]) {
+		g_io_channel_unref (job->arranger.channel[STDIN_FILENO]);
+		job->arranger.channel[STDIN_FILENO] = NULL;
+	}
+}
+
+static void
 pd_job_impl_backend_watch_cb (GPid pid,
 			      gint status,
 			      gpointer user_data)
@@ -519,155 +541,125 @@ pd_job_impl_parse_stderr (PdJobImpl *job,
 }
 
 static gboolean
-pd_job_impl_document_io_cb (GIOChannel *channel,
-			    GIOCondition condition,
-			    gpointer data)
-{
-	GError *error = NULL;
-	gint keep_source = TRUE;
-	PdJobImpl *job = PD_JOB_IMPL (data);
-	guint job_id = pd_job_get_id (PD_JOB (job));
-	GIOStatus status;
-	gsize got;
-
-	g_assert (condition == G_IO_IN);
-	g_assert (channel == job->document_channel);
-	if (job->buflen - job->bufsent > 0)
-		/* Don't bother unless our buffer is empty */
-		goto out;
-
-	/* Read more from spool */
-	status = g_io_channel_read_chars (channel,
-					  job->buffer,
-					  sizeof (job->buffer),
-					  &got,
-					  &error);
-	switch (status) {
-	case G_IO_STATUS_NORMAL:
-		job->buflen = got;
-		job->bufsent = 0;
-		g_debug ("[Job %u] Read %zu bytes from spool file",
-			 job_id, got);
-		job->backend.io_source[STDIN_FILENO] =
-			g_io_add_watch (job->backend.channel[STDIN_FILENO],
-					G_IO_OUT,
-					pd_job_impl_backend_io_cb,
-					job);
-		keep_source = FALSE;
-		job->document_io_source = -1;
-		break;
-
-	case G_IO_STATUS_EOF:
-		g_debug ("[Job %u] Spool finished", job_id);
-		g_io_channel_unref (channel);
-		job->document_channel = NULL;
-		keep_source = FALSE;
-		goto out;
-
-	case G_IO_STATUS_ERROR:
-		g_warning ("[Job %u] read() from spool: %s",
-			   job_id,
-			   g_strerror (errno));
-		break;
-
-	case G_IO_STATUS_AGAIN:
-		break;
-	}
-
- out:
-	return keep_source;
-}
-
-static gboolean
-pd_job_impl_backend_io_cb (GIOChannel *channel,
-			   GIOCondition condition,
-			   gpointer data)
+pd_job_impl_data_io_cb (GIOChannel *channel,
+			GIOCondition condition,
+			gpointer data)
 {
 	PdJobImpl *job = PD_JOB_IMPL (data);
 	guint job_id = pd_job_get_id (PD_JOB (job));
 	gboolean keep_source = TRUE;
 	GError *error = NULL;
 	GIOStatus status;
-	gchar *line = NULL;
 	gsize got, wrote;
+	struct _PdJobProcess *jp;
+	const gchar *what;
+	struct _PdJobProcess discard;
 
 	if (condition == G_IO_IN || condition == G_IO_HUP) {
-		/* Read messages from backend */
-		while ((status = g_io_channel_read_line (channel,
-							 &line,
-							 &got,
-							 NULL,
-							 &error)) ==
-		       G_IO_STATUS_NORMAL) {
-			if (channel == job->backend.channel[STDERR_FILENO]) {
-				g_debug ("[Job %u] backend(stderr): %s",
-					 job_id,
-					 g_strchomp (line));
-
-				pd_job_impl_parse_stderr (job, line);
-			} else if (channel == job->backend.channel[STDOUT_FILENO]) {
-				g_debug ("[Job %u] backend(stdout): %zu bytes",
-					 job_id, got);
-			} else {
-				g_assert (channel == job->backend.channel[3]);
-				g_debug ("[Job %u] backend(back-channel): "
-					 "%zu bytes", job_id, got);
-			}
+		if (channel == job->document_channel) {
+			what = "spool file";
+			jp = &job->arranger;
+		} else if (channel == job->arranger.channel[STDOUT_FILENO]) {
+			what = "arranger";
+			jp = &job->backend;
+		} else if (channel == job->arranger.channel[3]) {
+			what = "arranger (back-channel)";
+			jp = &discard;
+		} else {
+			g_assert (channel == job->backend.channel[3]);
+			what = "backend (back-channel)";
+			jp = &discard;
 		}
 
+		/* Read more from spool */
+		status = g_io_channel_read_chars (channel,
+						  jp->buffer,
+						  sizeof (jp->buffer),
+						  &got,
+						  &error);
 		switch (status) {
-		case G_IO_STATUS_ERROR:
-			g_warning ("[Job %u] Error reading from channel: %s",
-				   job_id, error->message);
-			g_error_free (error);
-			goto out;
+		case G_IO_STATUS_NORMAL:
+			jp->buflen = got;
+			jp->bufsent = 0;
+			g_debug ("[Job %u] Read %zu bytes from %s",
+				 job_id,
+				 got,
+				 what);
+
+			jp->io_source[STDIN_FILENO] =
+				g_io_add_watch (jp->channel[STDIN_FILENO],
+						G_IO_OUT,
+						pd_job_impl_data_io_cb,
+						job);
+			keep_source = FALSE;
+			break;
+
 		case G_IO_STATUS_EOF:
+			g_debug ("[Job %u] Output from %s closed",
+				 job_id,
+				 what);
 			g_io_channel_unref (channel);
-			if (channel == job->backend.channel[STDOUT_FILENO]) {
-				g_debug ("[Job %u] Backend stdout closed",
-					 job_id);
-				job->backend.channel[STDOUT_FILENO] = NULL;
-				job->backend.io_source[STDOUT_FILENO] = -1;
-			} else if (channel == job->backend.channel[STDERR_FILENO]) {
-				g_debug ("[Job %u] Backend stderr closed",
-					 job_id);
-				job->backend.channel[STDERR_FILENO] = NULL;
-				job->backend.io_source[STDERR_FILENO] = -1;
-			} else {
+			keep_source = FALSE;
+			break;
+
+		case G_IO_STATUS_ERROR:
+			g_warning ("[Job %u] read() from %s failed: %s",
+				   job_id,
+				   what,
+				   error->message);
+			g_error_free (error);
+			break;
+
+		case G_IO_STATUS_AGAIN:
+			/* End of data for now */
+			break;
+		}
+
+		if (!keep_source) {
+			if (channel == job->document_channel)
+				job->document_io_source = -1;
+			else if (channel == job->arranger.channel[STDOUT_FILENO])
+				job->arranger.io_source[STDOUT_FILENO] = -1;
+			else if (channel == job->arranger.channel[3])
+				job->arranger.io_source[3] = -1;
+			else {
 				g_assert (channel == job->backend.channel[3]);
-				g_debug ("[Job %u] Backend back-channel closed",
-					 job_id);
-				job->backend.channel[3] = NULL;
 				job->backend.io_source[3] = -1;
 			}
 
-			keep_source = FALSE;
-			break;
-		case G_IO_STATUS_AGAIN:
-			/* End of messages for now */
-			break;
-		case G_IO_STATUS_NORMAL:
-			g_assert_not_reached ();
-			break;
+			if (status == G_IO_STATUS_EOF) {
+				if (channel == job->document_channel)
+					job->document_channel = NULL;
+				else if (channel == job->arranger.channel[STDOUT_FILENO])
+					job->arranger.channel[STDOUT_FILENO] = NULL;
+				else if (channel == job->arranger.channel[3])
+					job->arranger.channel[3] = NULL;
+				else {
+					g_assert (channel == job->backend.channel[3]);
+					job->backend.channel[3] = NULL;
+				}
+			}
+		}
+	} else {
+		g_assert (condition == G_IO_OUT);
+		if (channel == job->arranger.channel[STDIN_FILENO]) {
+			what = "arranger";
+			jp = &job->arranger;
+		} else {
+			g_assert (channel == job->backend.channel[STDIN_FILENO]);
+			what = "backend";
+			jp = &job->backend;
 		}
 
-	} else if (condition == G_IO_OUT) {
-		/* Send data to backend */
-		g_assert (channel == job->backend.channel[STDIN_FILENO]);
-
-		if (job->buflen - job->bufsent == 0)
-			/* Nothing to send */
-			goto out;
-
 		status = g_io_channel_write_chars (channel,
-						   job->buffer + job->bufsent,
-						   job->buflen - job->bufsent,
+						   jp->buffer + jp->bufsent,
+						   jp->buflen - jp->bufsent,
 						   &wrote,
 						   &error);
 		switch (status) {
 		case G_IO_STATUS_ERROR:
-			g_warning ("[Job %u] Error writing to channel: %s",
-				   job_id, error->message);
+			g_warning ("[Job %u] Error writing to %s: %s",
+				   job_id, what, error->message);
 			g_error_free (error);
 			goto out;
 		case G_IO_STATUS_EOF:
@@ -678,22 +670,120 @@ pd_job_impl_backend_io_cb (GIOChannel *channel,
 				 job_id);
 			break;
 		case G_IO_STATUS_NORMAL:
-			g_debug ("[Job %u] Wrote %zu bytes to backend",
-				 job_id, wrote);
+			g_debug ("[Job %u] Wrote %zu bytes to %s",
+				 job_id, wrote, what);
 			break;
 		}
 
-		job->bufsent += wrote;
+		jp->bufsent += wrote;
 
-		if (job->buflen - job->bufsent == 0) {
+		if (jp->buflen - jp->bufsent == 0) {
 			/* Need to read more data now */
 			keep_source = FALSE;
-			job->backend.io_source[STDIN_FILENO] = -1;
-			job->document_io_source = g_io_add_watch (job->document_channel,
-								  G_IO_IN,
-								  pd_job_impl_document_io_cb,
-								  job);
+			jp->io_source[STDIN_FILENO] = -1;
+
+			if (channel == job->arranger.channel[STDIN_FILENO])
+				job->document_io_source =
+					g_io_add_watch (job->document_channel,
+							G_IO_IN,
+							pd_job_impl_data_io_cb,
+							job);
+			else
+				job->arranger.io_source[STDIN_FILENO] =
+					g_io_add_watch (job->arranger.channel[STDOUT_FILENO],
+							G_IO_OUT |
+							G_IO_HUP,
+							pd_job_impl_data_io_cb,
+							job);
 		}
+	}
+
+ out:
+	return keep_source;
+}
+
+static gboolean
+pd_job_impl_message_io_cb (GIOChannel *channel,
+			   GIOCondition condition,
+			   gpointer data)
+{
+	PdJobImpl *job = PD_JOB_IMPL (data);
+	guint job_id = pd_job_get_id (PD_JOB (job));
+	gboolean keep_source = TRUE;
+	GError *error = NULL;
+	GIOStatus status;
+	gchar *line = NULL;
+	gsize got;
+
+	g_assert (condition == G_IO_IN || condition == G_IO_HUP);
+
+	while ((status = g_io_channel_read_line (channel,
+						 &line,
+						 &got,
+						 NULL,
+						 &error)) ==
+	       G_IO_STATUS_NORMAL) {
+		if (channel == job->arranger.channel[STDERR_FILENO]) {
+			/* Read messages from arranger */
+			g_debug ("[Job %u] arranger(stderr): %s",
+				 job_id,
+				 g_strchomp (line));
+
+			pd_job_impl_parse_stderr (job, line);
+		} else if (channel == job->backend.channel[STDERR_FILENO]) {
+			/* Read messages from backend */
+			g_debug ("[Job %u] backend(stderr): %s",
+				 job_id,
+				 g_strchomp (line));
+
+			pd_job_impl_parse_stderr (job, line);
+		} else {
+			g_assert (channel == job->backend.channel[STDOUT_FILENO]);
+			g_debug ("[Job %u] backend(stdout): %s",
+				 job_id,
+				 g_strchomp (line));
+		}
+	}
+
+	switch (status) {
+	case G_IO_STATUS_ERROR:
+		g_warning ("[Job %u] Error reading from channel: %s",
+			   job_id, error->message);
+		g_error_free (error);
+		goto out;
+	case G_IO_STATUS_EOF:
+		g_io_channel_unref (channel);
+		if (channel == job->arranger.channel[STDOUT_FILENO]) {
+			g_debug ("[Job %u] Arranger stdout closed",
+				 job_id);
+			job->arranger.channel[STDOUT_FILENO] = NULL;
+			job->arranger.io_source[STDOUT_FILENO] = -1;
+		} else if (channel == job->backend.channel[STDOUT_FILENO]) {
+			g_debug ("[Job %u] Backend stdout closed",
+				 job_id);
+			job->backend.channel[STDOUT_FILENO] = NULL;
+			job->backend.io_source[STDOUT_FILENO] = -1;
+		} else if (channel == job->arranger.channel[STDERR_FILENO]) {
+			g_debug ("[Job %u] Arranger stderr closed",
+				 job_id);
+			job->arranger.channel[STDERR_FILENO] = NULL;
+			job->arranger.io_source[STDERR_FILENO] = -1;
+		} else {
+			g_assert (channel == job->backend.channel[STDERR_FILENO]);
+			g_debug ("[Job %u] Backend stderr closed",
+				 job_id);
+			job->backend.channel[STDERR_FILENO] = NULL;
+			job->backend.io_source[STDERR_FILENO] = -1;
+		}
+
+		keep_source = FALSE;
+		break;
+	case G_IO_STATUS_AGAIN:
+		/* End of messages for now */
+		break;
+	case G_IO_STATUS_NORMAL:
+		g_assert_not_reached ();
+		break;
 	}
 
  out:
@@ -793,7 +883,7 @@ pd_job_impl_run_process (PdJobImpl *job,
 					G_SPAWN_DO_NOT_REAP_CHILD |
 					G_SPAWN_FILE_AND_ARGV_ZERO,
 					pd_job_impl_process_setup,
-					job,
+					jp,
 					&jp->pid,
 					&process_fd[STDIN_FILENO],
 					&process_fd[STDOUT_FILENO],
@@ -819,7 +909,7 @@ pd_job_impl_run_process (PdJobImpl *job,
 						   NULL,
 						   NULL);
 
-		job->backend.channel[i] = channel;
+		jp->channel[i] = channel;
 	}
 
  out:
@@ -899,7 +989,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		g_io_add_watch (channel,
 				G_IO_IN |
 				G_IO_HUP,
-				pd_job_impl_backend_io_cb,
+				pd_job_impl_message_io_cb,
 				job);
 
 	channel = job->backend.channel[STDERR_FILENO];
@@ -907,19 +997,57 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		g_io_add_watch (channel,
 				G_IO_IN |
 				G_IO_HUP,
-				pd_job_impl_backend_io_cb,
+				pd_job_impl_message_io_cb,
 				job);
 
 	job->backend.io_source[3] =
 		g_io_add_watch (job->backend.channel[3],
 				G_IO_IN |
 				G_IO_HUP,
-				pd_job_impl_backend_io_cb,
+				pd_job_impl_data_io_cb,
 				job);
 
-	/* Send document */
-	job->buflen = 0;
-	job->bufsent = 0;
+	/* Run arranger */
+	g_free (cmd);
+	cmd = g_strdup_printf ("/usr/lib/cups/filter/pstops");
+	if (!pd_job_impl_run_process (job, cmd, &job->arranger, &error)) {
+		g_error ("[Job %u] Running arranger: %s",
+			 job_id, error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	job->arranger.process_watch_source =
+		g_child_watch_add (job->arranger.pid,
+				   pd_job_impl_arranger_watch_cb,
+				   job);
+
+	job->arranger.io_source[STDIN_FILENO] = -1;
+
+	channel = job->arranger.channel[STDOUT_FILENO];
+	job->arranger.io_source[STDOUT_FILENO] =
+		g_io_add_watch (channel,
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_data_io_cb,
+				job);
+
+	channel = job->arranger.channel[STDERR_FILENO];
+	job->arranger.io_source[STDERR_FILENO] =
+		g_io_add_watch (channel,
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_message_io_cb,
+				job);
+
+	job->arranger.io_source[3] =
+		g_io_add_watch (job->arranger.channel[3],
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_data_io_cb,
+				job);
+
+	/* Open document */
 	job->document_channel = g_io_channel_new_file (job->document_filename,
 						       "r",
 						       &error);
@@ -934,6 +1062,18 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto out;
 	}
 
+	g_io_channel_set_encoding (job->document_channel,
+				   NULL,
+				   NULL);
+
+	/* Start sending document */
+	job->arranger.buflen = 0;
+	job->arranger.bufsent = 0;
+	job->document_io_source =
+		g_io_add_watch (job->document_channel,
+				G_IO_IN,
+				pd_job_impl_data_io_cb,
+				job);
  out:
 	if (printer)
 		g_object_unref (printer);
@@ -1279,12 +1419,21 @@ pd_job_impl_cancel (PdJob *_job,
 			job->backend.channel[STDIN_FILENO] = NULL;
 		}
 
-		/* Simple implementation for now: just kill the backend */
+		/* Simple implementation for now: just kill the processes */
+		if (job->arranger.pid != -1) {
+			g_debug ("[Job %u] Sending signal 9 to PID %d",
+				 job_id,
+				 job->arranger.pid);
+			kill (job->arranger.pid, 9);
+			g_spawn_close_pid (job->arranger.pid);
+		}
+
 		if (job->backend.pid != -1) {
 			g_debug ("[Job %u] Sending signal 9 to PID %d",
 				 job_id,
 				 job->backend.pid);
 			kill (job->backend.pid, 9);
+			g_spawn_close_pid (job->backend.pid);
 		}
 
 		g_dbus_method_invocation_return_value (invocation,
