@@ -80,9 +80,8 @@ struct _PdJobImpl
 
 	gint		 document_fd;
 	gchar		*document_filename;
-	guint		 document_io_source;
-	GIOChannel	*document_channel;
 
+	struct _PdJobProcess spoolfile;
 	struct _PdJobProcess arranger;
 	struct _PdJobProcess backend;
 };
@@ -138,8 +137,11 @@ pd_job_impl_finalize (GObject *object)
 	g_hash_table_unref (job->attributes);
 	g_hash_table_unref (job->state_reasons);
 
-	if (job->document_channel)
-		g_io_channel_unref (job->document_channel);
+	/* Stop reading spool file */
+	if (job->spoolfile.io_source[STDOUT_FILENO] != -1)
+		g_source_remove (job->spoolfile.io_source[STDOUT_FILENO]);
+	if (job->spoolfile.channel[STDOUT_FILENO])
+		g_io_channel_unref (job->spoolfile.channel[STDOUT_FILENO]);
 
 	/* Shut down arranger */
 	if (job->arranger.pid != -1) {
@@ -552,11 +554,12 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 	GIOStatus status;
 	gsize got, wrote;
 	struct _PdJobProcess *jp;
+	GIOChannel *nextchannel;
 	const gchar *what;
 	struct _PdJobProcess discard;
 
 	if (condition == G_IO_IN || condition == G_IO_HUP) {
-		if (channel == job->document_channel) {
+		if (channel == job->spoolfile.channel[STDOUT_FILENO]) {
 			what = "spool file";
 			jp = &job->arranger;
 		} else if (channel == job->arranger.channel[STDOUT_FILENO]) {
@@ -571,7 +574,7 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 			jp = &discard;
 		}
 
-		/* Read more from spool */
+		/* Read some data */
 		status = g_io_channel_read_chars (channel,
 						  jp->buffer,
 						  sizeof (jp->buffer),
@@ -586,11 +589,14 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 				 got,
 				 what);
 
-			jp->io_source[STDIN_FILENO] =
-				g_io_add_watch (jp->channel[STDIN_FILENO],
-						G_IO_OUT,
-						pd_job_impl_data_io_cb,
-						job);
+			nextchannel = jp->channel[STDIN_FILENO];
+			if (nextchannel)
+				jp->io_source[STDIN_FILENO] =
+					g_io_add_watch (nextchannel,
+							G_IO_OUT,
+							pd_job_impl_data_io_cb,
+							job);
+
 			keep_source = FALSE;
 			break;
 
@@ -599,6 +605,7 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 				 job_id,
 				 what);
 			g_io_channel_unref (channel);
+
 			keep_source = FALSE;
 			break;
 
@@ -616,8 +623,8 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 		}
 
 		if (!keep_source) {
-			if (channel == job->document_channel)
-				job->document_io_source = -1;
+			if (channel == job->spoolfile.channel[STDOUT_FILENO])
+				job->spoolfile.io_source[STDOUT_FILENO] = -1;
 			else if (channel == job->arranger.channel[STDOUT_FILENO])
 				job->arranger.io_source[STDOUT_FILENO] = -1;
 			else if (channel == job->arranger.channel[3])
@@ -628,8 +635,8 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 			}
 
 			if (status == G_IO_STATUS_EOF) {
-				if (channel == job->document_channel)
-					job->document_channel = NULL;
+				if (channel == job->spoolfile.channel[STDOUT_FILENO])
+					job->spoolfile.channel[STDOUT_FILENO] = NULL;
 				else if (channel == job->arranger.channel[STDOUT_FILENO])
 					job->arranger.channel[STDOUT_FILENO] = NULL;
 				else if (channel == job->arranger.channel[3])
@@ -638,6 +645,15 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 					g_assert (channel == job->backend.channel[3]);
 					job->backend.channel[3] = NULL;
 				}
+
+				nextchannel = jp->channel[STDIN_FILENO];
+				if (nextchannel)
+					jp->io_source[STDIN_FILENO] =
+						g_io_add_watch (nextchannel,
+								G_IO_OUT,
+								pd_job_impl_data_io_cb,
+								job);
+
 			}
 		}
 	} else {
@@ -649,6 +665,29 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 			g_assert (channel == job->backend.channel[STDIN_FILENO]);
 			what = "backend";
 			jp = &job->backend;
+		}
+
+		if (jp->buflen - jp->bufsent == 0) {
+			/* End of input */
+			g_io_channel_shutdown (channel,
+					       TRUE,
+					       NULL);
+			keep_source = FALSE;
+			jp->io_source[STDIN_FILENO] = -1;
+			if (channel == job->arranger.channel[STDIN_FILENO]) {
+				g_debug ("[Job %u] Closing input to arranger",
+					 job_id);
+				job->arranger.channel[STDIN_FILENO] = NULL;
+				g_io_channel_unref (channel);
+			} else {
+				g_assert (channel == job->backend.channel[STDIN_FILENO]);
+				g_debug ("[Job %u] Closing input to backend",
+					 job_id);
+				job->backend.channel[STDIN_FILENO] = NULL;
+				g_io_channel_unref (channel);
+			}
+
+			goto out;
 		}
 
 		status = g_io_channel_write_chars (channel,
@@ -682,20 +721,23 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 			keep_source = FALSE;
 			jp->io_source[STDIN_FILENO] = -1;
 
-			if (channel == job->arranger.channel[STDIN_FILENO])
-				job->document_io_source =
-					g_io_add_watch (job->document_channel,
+			if (channel == job->arranger.channel[STDIN_FILENO]) {
+				job->spoolfile.io_source[STDOUT_FILENO] =
+					g_io_add_watch (job->spoolfile.channel[STDOUT_FILENO],
 							G_IO_IN,
 							pd_job_impl_data_io_cb,
 							job);
-			else
-				job->arranger.io_source[STDIN_FILENO] =
+			} else {
+				g_assert (channel == job->backend.channel[STDIN_FILENO]);
+				job->arranger.io_source[STDOUT_FILENO] =
 					g_io_add_watch (job->arranger.channel[STDOUT_FILENO],
-							G_IO_OUT |
+							G_IO_IN |
 							G_IO_HUP,
 							pd_job_impl_data_io_cb,
 							job);
+			}
 		}
+
 	}
 
  out:
@@ -1048,10 +1090,10 @@ pd_job_impl_start_processing (PdJobImpl *job)
 				job);
 
 	/* Open document */
-	job->document_channel = g_io_channel_new_file (job->document_filename,
-						       "r",
-						       &error);
-	if (job->document_channel == NULL) {
+	channel = g_io_channel_new_file (job->document_filename,
+					 "r",
+					 &error);
+	if (channel == NULL) {
 		g_error ("[Job %u] Failed to open spool file %s: %s",
 			 job_id, job->document_filename, error->message);
 		g_error_free (error);
@@ -1062,15 +1104,16 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto out;
 	}
 
-	g_io_channel_set_encoding (job->document_channel,
+	g_io_channel_set_encoding (channel,
 				   NULL,
 				   NULL);
+	job->spoolfile.channel[STDOUT_FILENO] = channel;
 
 	/* Start sending document */
 	job->arranger.buflen = 0;
 	job->arranger.bufsent = 0;
-	job->document_io_source =
-		g_io_add_watch (job->document_channel,
+	job->spoolfile.io_source[STDOUT_FILENO] =
+		g_io_add_watch (job->spoolfile.channel[STDOUT_FILENO],
 				G_IO_IN,
 				pd_job_impl_data_io_cb,
 				job);
