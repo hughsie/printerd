@@ -553,45 +553,59 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 	GError *error = NULL;
 	GIOStatus status;
 	gsize got, wrote;
-	struct _PdJobProcess *jp;
+	struct _PdJobProcess *thisjp;
+	struct _PdJobProcess *nextjp;
 	GIOChannel *nextchannel;
+	gint thisfd;
+	gint nextfd;
 	const gchar *what;
 	struct _PdJobProcess discard;
 
-	if (condition == G_IO_IN || condition == G_IO_HUP) {
+	if (condition & (G_IO_IN | G_IO_HUP)) {
+		nextfd = STDIN_FILENO;
 		if (channel == job->spoolfile.channel[STDOUT_FILENO]) {
 			what = "spool file";
-			jp = &job->arranger;
+			thisfd = STDOUT_FILENO;
+			thisjp = &job->spoolfile;
+			nextjp = &job->arranger;
 		} else if (channel == job->arranger.channel[STDOUT_FILENO]) {
 			what = "arranger";
-			jp = &job->backend;
+			thisfd = STDOUT_FILENO;
+			thisjp = &job->arranger;
+			nextjp = &job->backend;
 		} else if (channel == job->arranger.channel[3]) {
 			what = "arranger (back-channel)";
-			jp = &discard;
+			thisfd = 3;
+			thisjp = &job->arranger;
+			nextjp = &discard;
+			memset (&discard, 0, sizeof (discard));
 		} else {
 			g_assert (channel == job->backend.channel[3]);
+			thisfd = 3;
 			what = "backend (back-channel)";
-			jp = &discard;
+			thisjp = &job->backend;
+			nextjp = &discard;
+			memset (&discard, 0, sizeof (discard));
 		}
 
 		/* Read some data */
 		status = g_io_channel_read_chars (channel,
-						  jp->buffer,
-						  sizeof (jp->buffer),
+						  nextjp->buffer,
+						  sizeof (nextjp->buffer),
 						  &got,
 						  &error);
 		switch (status) {
 		case G_IO_STATUS_NORMAL:
-			jp->buflen = got;
-			jp->bufsent = 0;
+			nextjp->buflen = got;
+			nextjp->bufsent = 0;
 			g_debug ("[Job %u] Read %zu bytes from %s",
 				 job_id,
 				 got,
 				 what);
 
-			nextchannel = jp->channel[STDIN_FILENO];
+			nextchannel = nextjp->channel[nextfd];
 			if (nextchannel)
-				jp->io_source[STDIN_FILENO] =
+				nextjp->io_source[nextfd] =
 					g_io_add_watch (nextchannel,
 							G_IO_OUT,
 							pd_job_impl_data_io_cb,
@@ -623,32 +637,14 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 		}
 
 		if (!keep_source) {
-			if (channel == job->spoolfile.channel[STDOUT_FILENO])
-				job->spoolfile.io_source[STDOUT_FILENO] = -1;
-			else if (channel == job->arranger.channel[STDOUT_FILENO])
-				job->arranger.io_source[STDOUT_FILENO] = -1;
-			else if (channel == job->arranger.channel[3])
-				job->arranger.io_source[3] = -1;
-			else {
-				g_assert (channel == job->backend.channel[3]);
-				job->backend.io_source[3] = -1;
-			}
+			thisjp->io_source[thisfd] = -1;
 
 			if (status == G_IO_STATUS_EOF) {
-				if (channel == job->spoolfile.channel[STDOUT_FILENO])
-					job->spoolfile.channel[STDOUT_FILENO] = NULL;
-				else if (channel == job->arranger.channel[STDOUT_FILENO])
-					job->arranger.channel[STDOUT_FILENO] = NULL;
-				else if (channel == job->arranger.channel[3])
-					job->arranger.channel[3] = NULL;
-				else {
-					g_assert (channel == job->backend.channel[3]);
-					job->backend.channel[3] = NULL;
-				}
+				thisjp->channel[thisfd] = NULL;
 
-				nextchannel = jp->channel[STDIN_FILENO];
+				nextchannel = nextjp->channel[nextfd];
 				if (nextchannel)
-					jp->io_source[STDIN_FILENO] =
+					nextjp->io_source[nextfd] =
 						g_io_add_watch (nextchannel,
 								G_IO_OUT,
 								pd_job_impl_data_io_cb,
@@ -658,41 +654,38 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 		}
 	} else {
 		g_assert (condition == G_IO_OUT);
+		thisfd = STDIN_FILENO;
+		nextfd = STDOUT_FILENO;
 		if (channel == job->arranger.channel[STDIN_FILENO]) {
 			what = "arranger";
-			jp = &job->arranger;
+			thisjp = &job->arranger;
+			nextjp = &job->spoolfile;
 		} else {
 			g_assert (channel == job->backend.channel[STDIN_FILENO]);
 			what = "backend";
-			jp = &job->backend;
+			thisjp = &job->backend;
+			nextjp = &job->arranger;
 		}
 
-		if (jp->buflen - jp->bufsent == 0) {
+		if (thisjp->buflen - thisjp->bufsent == 0) {
 			/* End of input */
 			g_io_channel_shutdown (channel,
 					       TRUE,
 					       NULL);
 			keep_source = FALSE;
-			jp->io_source[STDIN_FILENO] = -1;
-			if (channel == job->arranger.channel[STDIN_FILENO]) {
-				g_debug ("[Job %u] Closing input to arranger",
-					 job_id);
-				job->arranger.channel[STDIN_FILENO] = NULL;
-				g_io_channel_unref (channel);
-			} else {
-				g_assert (channel == job->backend.channel[STDIN_FILENO]);
-				g_debug ("[Job %u] Closing input to backend",
-					 job_id);
-				job->backend.channel[STDIN_FILENO] = NULL;
-				g_io_channel_unref (channel);
-			}
-
+			thisjp->io_source[thisfd] = -1;
+			g_debug ("[Job %u] Closing input to %s",
+				 job_id, what);
+			thisjp->channel[thisfd] = NULL;
+			g_io_channel_unref (channel);
 			goto out;
 		}
 
 		status = g_io_channel_write_chars (channel,
-						   jp->buffer + jp->bufsent,
-						   jp->buflen - jp->bufsent,
+						   thisjp->buffer +
+						   thisjp->bufsent,
+						   thisjp->buflen -
+						   thisjp->bufsent,
 						   &wrote,
 						   &error);
 		switch (status) {
@@ -714,28 +707,19 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 			break;
 		}
 
-		jp->bufsent += wrote;
+		thisjp->bufsent += wrote;
 
-		if (jp->buflen - jp->bufsent == 0) {
+		if (thisjp->buflen - thisjp->bufsent == 0) {
 			/* Need to read more data now */
 			keep_source = FALSE;
-			jp->io_source[STDIN_FILENO] = -1;
+			thisjp->io_source[thisfd] = -1;
 
-			if (channel == job->arranger.channel[STDIN_FILENO]) {
-				job->spoolfile.io_source[STDOUT_FILENO] =
-					g_io_add_watch (job->spoolfile.channel[STDOUT_FILENO],
-							G_IO_IN,
-							pd_job_impl_data_io_cb,
-							job);
-			} else {
-				g_assert (channel == job->backend.channel[STDIN_FILENO]);
-				job->arranger.io_source[STDOUT_FILENO] =
-					g_io_add_watch (job->arranger.channel[STDOUT_FILENO],
-							G_IO_IN |
-							G_IO_HUP,
-							pd_job_impl_data_io_cb,
-							job);
-			}
+			nextchannel = nextjp->channel[nextfd];
+			nextjp->io_source[nextfd] = g_io_add_watch (nextchannel,
+								    G_IO_IN |
+								    G_IO_HUP,
+								    pd_job_impl_data_io_cb,
+								    job);
 		}
 
 	}
