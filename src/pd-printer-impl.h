@@ -40,6 +40,11 @@ typedef enum
 	PD_PRINTER_STATE_STOPPED,
 } pd_printer_state_t;
 
+/* File descriptors for filters and backends */
+#define PD_FD_BACK	3
+#define PD_FD_SIDE	4
+#define PD_FD_MAX	5
+
 GType		 pd_printer_impl_get_type	(void) G_GNUC_CONST;
 PdDaemon	*pd_printer_impl_get_daemon	(PdPrinterImpl	*printer);
 const gchar	*pd_printer_impl_get_id		(PdPrinterImpl	*printer);

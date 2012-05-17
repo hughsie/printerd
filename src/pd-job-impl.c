@@ -22,6 +22,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -56,11 +57,11 @@ struct _PdJobProcess
 	GPid		 pid;
 	guint		 process_watch_source;
 
-	guint		 io_source[4];
-	GIOChannel	*channel[4];
+	guint		 io_source[5];
+	GIOChannel	*channel[5];
 
-	gint		 child_fd[4];
-	gint		 parent_fd[4];
+	gint		 child_fd[5];
+	gint		 parent_fd[5];
 };
 
 /**
@@ -138,7 +139,7 @@ pd_job_impl_finalize_jp (gpointer data)
 
 	if (jp->process_watch_source != 0)
 		g_source_remove (jp->process_watch_source);
-	for (i = 0; i <= 3; i++) {
+	for (i = 0; i < PD_FD_MAX; i++) {
 		if (jp->io_source[i] != -1)
 			g_source_remove (jp->io_source[i]);
 		if (jp->channel[i])
@@ -269,7 +270,7 @@ pd_job_impl_init_jp (PdJobImpl *job,
 	gint i;
 	jp->job = job;
 	jp->pid = -1;
-	for (i = 0; i <= 3; i++) {
+	for (i = 0; i < PD_FD_MAX; i++) {
 		jp->io_source[i] = -1;
 		jp->child_fd[i] = -1;
 		jp->parent_fd[i] = -1;
@@ -476,14 +477,14 @@ pd_job_impl_process_watch_cb (GPid pid,
 
 	if (jp != &job->backend) {
 		/* Filter. All filters read back-channel data */
-		if (jp->io_source[3] != -1) {
-			g_source_remove (jp->io_source[3]);
-			jp->io_source[3] = -1;
+		if (jp->io_source[PD_FD_BACK] != -1) {
+			g_source_remove (jp->io_source[PD_FD_BACK]);
+			jp->io_source[PD_FD_BACK] = -1;
 		}
 
-		if (jp->channel[3]) {
-			g_io_channel_unref (jp->channel[3]);
-			jp->channel[3] = NULL;
+		if (jp->channel[PD_FD_BACK]) {
+			g_io_channel_unref (jp->channel[PD_FD_BACK]);
+			jp->channel[PD_FD_BACK] = NULL;
 		}
 	} else {
 		/* Backend. Adjust job state. */
@@ -560,7 +561,7 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 	if (condition & (G_IO_IN | G_IO_HUP)) {
 		nextfd = STDIN_FILENO;
 		if (thisjp == &job->backend) {
-			thisfd = 3;
+			thisfd = PD_FD_BACK;
 			thisjp = &job->backend;
 			nextjp = &discard;
 			memset (&discard, 0, sizeof (discard));
@@ -748,11 +749,11 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 		goto out;
 	case G_IO_STATUS_EOF:
 		g_io_channel_unref (channel);
-		for (i = 0; i <= 3; i++)
+		for (i = 0; i < PD_FD_MAX; i++)
 			if (channel == jp->channel[i])
 				break;
 
-		g_assert (i < 4);
+		g_assert (i < PD_FD_MAX);
 		g_debug ("[Job %u] %s fd %d closed",
 			 job_id, jp->what, i);
 		jp->channel[i] = NULL;
@@ -799,22 +800,22 @@ pd_job_impl_process_setup (gpointer user_data)
 	gint i;
 
 	/* Close the parent's ends of any pipes */
-	for (i = 0; i <= 3; i++)
+	for (i = 0; i < PD_FD_MAX; i++)
 		if (jp->parent_fd[i] != -1)
 			close (jp->parent_fd[i]);
 
 	/* Watch out for clashes */
-	for (i = 0; i <= 3; i++)
-		if (jp->child_fd[i] < 4 &&
+	for (i = 0; i < PD_FD_MAX; i++)
+		if (jp->child_fd[i] < PD_FD_MAX &&
 		    jp->child_fd[i] != i) {
-			gint newfd = 20 + i;
+			gint newfd = PD_FD_MAX + i;
 			dup2 (jp->child_fd[i], newfd);
 			close (jp->child_fd[i]);
 			jp->child_fd[i] = newfd;
 		}
 
 	/* Set our standard file descriptors to existing ones */
-	for (i = 0; i <= 3; i++)
+	for (i = 0; i < PD_FD_MAX; i++)
 		if (jp->child_fd[i] != -1 &&
 		    jp->child_fd[i] != i) {
 			dup2 (jp->child_fd[i], i);
@@ -891,12 +892,12 @@ pd_job_impl_run_process (PdJobImpl *job,
 				   jp);
 
 	/* Close the child's end of the pipe now they've started */
-	for (i = 0; i <= 3; i++)
+	for (i = 0; i < PD_FD_MAX; i++)
 		if (jp->child_fd[i] != -1)
 			close (jp->child_fd[i]);
 
 	/* Set up IO channels */
-	for (i = 0; i <= 3; i++) {
+	for (i = 0; i < PD_FD_MAX; i++) {
 		GIOChannel *channel;
 
 		if (jp->parent_fd[i] == -1)
@@ -1022,12 +1023,27 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto fail;
 	}
 
-	job->backend.child_fd[3] = pipe_fd[STDOUT_FILENO];
+	job->backend.child_fd[PD_FD_BACK] = pipe_fd[STDOUT_FILENO];
 	for (filter = g_list_first (job->filterchain);
 	     filter;
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
-		jp->child_fd[3] = pipe_fd[STDIN_FILENO];
+		jp->child_fd[PD_FD_BACK] = pipe_fd[STDIN_FILENO];
+	}
+
+	/* Connect the side-channel between filter-chain and backend */
+	if (socketpair (AF_LOCAL, SOCK_STREAM, 0, pipe_fd) != 0) {
+		g_error ("[Job %u] Failed to create socket pair: %s",
+			 job_id, g_strerror (errno));
+		goto fail;
+	}
+
+	job->backend.child_fd[PD_FD_SIDE] = pipe_fd[0];
+	for (filter = g_list_first (job->filterchain);
+	     filter;
+	     filter = g_list_next (filter)) {
+		jp = filter->data;
+		jp->child_fd[PD_FD_SIDE] = pipe_fd[1];
 	}
 
 	/* Run backend */
