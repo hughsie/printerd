@@ -129,9 +129,9 @@ pd_job_impl_finalize_jp (gpointer data)
 	gint i;
 
 	if (jp->pid != -1) {
-		g_debug ("[Job %u] Sending signal 9 to backend PID %d",
+		g_debug ("[Job %u] Sending KILL signal to backend PID %d",
 			 pd_job_get_id (PD_JOB (jp->job)), jp->pid);
-		kill (jp->pid, 9);
+		kill (jp->pid, SIGKILL);
 		g_spawn_close_pid (jp->pid);
 	}
 
@@ -1459,19 +1459,19 @@ pd_job_impl_cancel (PdJob *_job,
 			if (jp->pid == -1)
 				continue;
 
-			g_debug ("[Job %u] Sending signal 9 to %s (PID %d)",
+			g_debug ("[Job %u] Sending KILL signal to %s (PID %d)",
 				 job_id,
 				 jp->what,
 				 jp->pid);
-			kill (jp->pid, 9);
+			kill (jp->pid, SIGKILL);
 			g_spawn_close_pid (jp->pid);
 		}
 
 		if (job->backend.pid != -1) {
-			g_debug ("[Job %u] Sending signal 9 to backend (PID %d)",
+			g_debug ("[Job %u] Sending KILL signal to backend (PID %d)",
 				 job_id,
 				 job->backend.pid);
-			kill (job->backend.pid, 9);
+			kill (job->backend.pid, SIGKILL);
 			g_spawn_close_pid (job->backend.pid);
 		}
 
