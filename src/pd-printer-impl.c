@@ -528,7 +528,7 @@ pd_printer_impl_get_uri (PdPrinterImpl *printer)
  * pd_printer_impl_get_next_job:
  * @printer: A #PdPrinterImpl.
  *
- * Get the next job should should be processed, or NULL if there is no
+ * Get the next job which should be processed, or NULL if there is no
  * suitable job.
  *
  * Returns: A #PdJob or NULL.  Free with g_object_unref.
@@ -536,20 +536,30 @@ pd_printer_impl_get_uri (PdPrinterImpl *printer)
 PdJob *
 pd_printer_impl_get_next_job (PdPrinterImpl *printer)
 {
+	PdJob *best = NULL;
 	PdJob *job;
+	guint index;
 
 	g_return_val_if_fail (PD_IS_PRINTER_IMPL (printer), NULL);
 
-	job = g_ptr_array_index (printer->jobs, 0);
-	if (job) {
-		if (pd_job_get_state (job) == PD_JOB_STATE_PENDING)
-			g_object_ref (job);
-		else
-			/* All jobs already processing. */
-			job = NULL;
+	index = 0;
+	for (index = 0; index < printer->jobs->len; index++) {
+		job = g_ptr_array_index (printer->jobs, index);
+		if (job == NULL)
+			break;
+
+		if (pd_job_get_state (job) == PD_JOB_STATE_PENDING) {
+			best = job;
+			break;
+		}
+
+		index++;
 	}
 
-	return job;
+	if (best)
+		g_object_ref (best);
+
+	return best;
 }
 
 /* ------------------------------------------------------------------ */
@@ -655,7 +665,6 @@ pd_printer_impl_job_state_notify (PdJob *job)
 	printer = pd_object_get_printer (obj);
 
 	switch (pd_job_get_state (job)) {
-	case PD_JOB_STATE_PENDING:
 	case PD_JOB_STATE_CANCELED:
 	case PD_JOB_STATE_ABORTED:
 	case PD_JOB_STATE_COMPLETED:
