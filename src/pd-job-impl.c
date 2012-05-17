@@ -556,19 +556,12 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 	GIOChannel *nextchannel;
 	gint thisfd;
 	gint nextfd;
-	struct _PdJobProcess discard;
 
 	if (condition & (G_IO_IN | G_IO_HUP)) {
+		g_assert (thisjp != &job->backend);
+		thisfd = STDOUT_FILENO;
+		nextjp = &job->backend;
 		nextfd = STDIN_FILENO;
-		if (thisjp == &job->backend) {
-			thisfd = PD_FD_BACK;
-			thisjp = &job->backend;
-			nextjp = &discard;
-			memset (&discard, 0, sizeof (discard));
-		} else {
-			thisfd = STDOUT_FILENO;
-			nextjp = &job->backend;
-		}
 
 		/* Read some data */
 		status = g_io_channel_read_chars (channel,
