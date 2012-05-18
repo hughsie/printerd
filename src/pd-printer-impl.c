@@ -562,8 +562,6 @@ pd_printer_impl_get_next_job (PdPrinterImpl *printer)
 			best = job;
 			break;
 		}
-
-		index++;
 	}
 
 	if (best)
