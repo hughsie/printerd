@@ -1472,7 +1472,7 @@ pd_job_impl_cancel (PdJob *_job,
 
 		/* Change job state. */
 		g_debug ("[Job %u] Canceled", job_id);
-		pd_job_impl_add_state_reason (job, "canceled-by-user");
+		pd_job_impl_add_state_reason (job, "job-canceled-by-user");
 		pd_job_set_state (_job, PD_JOB_STATE_CANCELED);
 
 		/* Return success */
