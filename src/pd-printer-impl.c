@@ -141,6 +141,8 @@ pd_printer_impl_get_property (GObject *object,
 	GHashTableIter iter;
 	gchar *dkey;
 	GVariant *dvalue;
+	GList *state_reasons, *sr;
+	gchar **strv, **p;
 
 	switch (prop_id) {
 	case PROP_DAEMON:
@@ -183,8 +185,16 @@ pd_printer_impl_get_property (GObject *object,
 		g_value_set_variant (value, g_variant_builder_end (&builder));
 		break;
 	case PROP_STATE_REASONS:
-		g_value_set_boxed (value,
-				   g_hash_table_get_keys (printer->state_reasons));
+		state_reasons = g_hash_table_get_keys (printer->state_reasons);
+		strv = g_malloc0 (sizeof (gchar *) *
+				  (1 + g_list_length (state_reasons)));
+		for (p = strv, sr = g_list_first (state_reasons);
+		     sr;
+		     sr = g_list_next (sr))
+			*p++ = g_strdup (sr->data);
+
+		g_value_take_boxed (value, strv);
+		g_list_free (state_reasons);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
