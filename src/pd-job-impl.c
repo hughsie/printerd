@@ -1193,7 +1193,6 @@ pd_job_impl_job_state_notify (PdJobImpl *job)
 		pd_job_impl_remove_state_reason (job, "job-incoming");
 		pd_job_impl_remove_state_reason (job,
 						 "processing-to-stop-point");
-		job->pending_job_state = PD_JOB_STATE_CANCELED;
 
 		g_signal_handlers_disconnect_by_func (job,
 						      pd_job_impl_job_state_notify,
@@ -1496,6 +1495,7 @@ pd_job_impl_cancel (PdJob *_job,
 			goto out;
 		}
 
+		job->pending_job_state = PD_JOB_STATE_CANCELED;
 		pd_job_impl_add_state_reason (job, "processing-to-stop-point");
 
 		if (job->backend.channel[STDIN_FILENO] != NULL) {
