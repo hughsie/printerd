@@ -447,6 +447,7 @@ pd_job_impl_add_state_reason (PdJobImpl *job,
 {
 	gchar *r = g_strdup (reason);
 	g_hash_table_insert (job->state_reasons, r, r);
+	g_object_notify (G_OBJECT (job), "state-reasons");
 	pd_job_impl_log_state_reason (job, reason, '+');
 }
 
@@ -456,11 +457,12 @@ pd_job_impl_remove_state_reason (PdJobImpl *job,
 {
 	if (g_hash_table_lookup (job->state_reasons, reason)) {
 		g_hash_table_remove (job->state_reasons, reason);
+		g_object_notify (G_OBJECT (job), "state-reasons");
 		pd_job_impl_log_state_reason (job, reason, '-');
 	}
 }
 
-static void
+static gboolean
 pd_job_impl_check_job_transforming (PdJobImpl *job)
 {
 	gboolean job_transforming = TRUE;
