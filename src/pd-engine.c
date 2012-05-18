@@ -57,6 +57,7 @@ enum
 };
 
 static void pd_engine_printer_state_notify (PdPrinter *printer);
+static void pd_engine_job_state_reasons_notify (PdJob *printer);
 
 G_DEFINE_TYPE (PdEngine, pd_engine, G_TYPE_OBJECT);
 
@@ -320,6 +321,51 @@ pd_engine_class_init (PdEngineClass *klass)
 }
 
 /**
+ * pd_engine_start_job:
+ * @printer: A #PdPrinter.
+ * @job: A #PdJob.
+ *
+ * Starts processing the job, and (if possible) sending it to the
+ * printer.
+ */
+static void
+pd_engine_start_job	(PdPrinter *printer,
+			 PdJob *job)
+{
+	GValue job_outgoing = G_VALUE_INIT;
+
+	g_value_init (&job_outgoing, G_TYPE_BOOLEAN);
+
+	g_return_if_fail (PD_IS_PRINTER (printer));
+	g_return_if_fail (PD_IS_JOB (job));
+
+	pd_printer_set_state (printer, PD_PRINTER_STATE_PROCESSING);
+	pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
+
+	g_object_get_property (G_OBJECT (printer),
+			       "job-outgoing",
+			       &job_outgoing);
+	if (!g_value_get_boolean (&job_outgoing)) {
+		g_value_set_boolean (&job_outgoing, TRUE);
+		g_object_set_property (G_OBJECT (printer),
+				       "job-outgoing",
+				       &job_outgoing);
+
+		g_debug ("[Engine] Job %u ready to start sending to printer",
+			 pd_job_get_id (job));
+
+		/* Watch the job-outgoing state reason for this job */
+		g_signal_connect (job,
+				  "notify::state-reasons",
+				  G_CALLBACK (pd_engine_job_state_reasons_notify),
+				  job);
+
+		/* Start sending the job to the printer */
+		pd_job_impl_start_sending (PD_JOB_IMPL (job));
+	}
+}
+
+/**
  * pd_engine_job_state_notify:
  * @job: A #PdJob.
  *
@@ -359,9 +405,7 @@ pd_engine_job_state_notify	(PdJob *job)
 			g_debug ("[Engine] Printer for job %u idle "
 				 "so starting job",
 				 pd_job_get_id (job));
-			pd_printer_set_state (printer,
-					      PD_PRINTER_STATE_PROCESSING);
-			pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
+			pd_engine_start_job (printer, job);
 		}
 
 		break;
@@ -381,6 +425,68 @@ pd_engine_job_state_notify	(PdJob *job)
 		g_object_unref (obj);
 	if (printer)
 		g_object_unref (printer);
+}
+
+/**
+ * pd_engine_job_state_reasons_notify:
+ * @job: A #PdJob.
+ *
+ * Watches the state reasons of an outgoing job to see when it has
+ * finished sending to the printer.
+ */
+static void
+pd_engine_job_state_reasons_notify	(PdJob *job)
+{
+	PdDaemon *daemon;
+	const gchar *printer_path;
+	guint job_id = pd_job_get_id (job);
+	PdObject *obj = NULL;
+	PdPrinter *printer = NULL;
+	GValue state_reasons = G_VALUE_INIT;
+	GValue job_outgoing = G_VALUE_INIT;
+	gchar **strv;
+	gint i;
+
+	g_return_if_fail (PD_IS_JOB (job));
+
+	g_value_init (&state_reasons, G_TYPE_STRV);
+	g_value_init (&job_outgoing, G_TYPE_BOOLEAN);
+	g_value_set_boolean (&job_outgoing, FALSE);
+
+	g_object_get_property (G_OBJECT (job),
+			       "state-reasons",
+			       &state_reasons);
+	strv = g_value_get_boxed (&state_reasons);
+	for (i = 0; strv[i] != NULL; i++)
+		if (!strcmp (strv[i], "job-outgoing"))
+			break;
+
+	if (strv[i] == NULL) {
+		g_debug ("[Engine] Job %u no longer outgoing", job_id);
+
+		daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
+		printer_path = pd_job_get_printer (job);
+		obj = pd_daemon_find_object (daemon, printer_path);
+		if (!obj)
+			goto out;
+
+		printer = pd_object_get_printer (obj);
+		g_object_set_property (G_OBJECT (printer),
+				       "job-outgoing",
+				       &job_outgoing);
+
+		g_signal_handlers_disconnect_by_func (job,
+						      pd_engine_job_state_reasons_notify,
+						      job);
+	}
+
+ out:
+	if (obj)
+		g_object_unref (obj);
+	if (printer)
+		g_object_unref (printer);
+	g_value_unset (&state_reasons);
+	g_value_unset (&job_outgoing);
 }
 
 /**
@@ -715,6 +821,7 @@ static void
 pd_engine_printer_state_notify	(PdPrinter *printer)
 {
 	PdJob *job = NULL;
+	guint job_id;
 
 	g_return_if_fail (PD_IS_PRINTER (printer));
 
@@ -732,11 +839,10 @@ pd_engine_printer_state_notify	(PdPrinter *printer)
 
 	g_assert (pd_job_get_state (job) == PD_JOB_STATE_PENDING);
 
+	job_id = pd_job_get_id (job);
 	g_debug ("[Engine] Job %u now ready to start processing",
-		 pd_job_get_id (job));
-	pd_printer_set_state (printer, PD_PRINTER_STATE_PROCESSING);
-	pd_job_set_state (job, PD_JOB_STATE_PROCESSING);
-
+		 job_id);
+	pd_engine_start_job (printer, job);
  out:
 	if (job)
 		g_object_unref (job);

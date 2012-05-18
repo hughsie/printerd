@@ -58,6 +58,7 @@ struct _PdPrinterImpl
 	GHashTable		*supported;
 	GHashTable		*state_reasons;	/* set, i.e. key==value */
 	GPtrArray		*jobs;
+	gboolean		 job_outgoing;
 
 	gchar			*id;
 };
@@ -78,6 +79,7 @@ enum
 	PROP_DEFAULTS,
 	PROP_SUPPORTED,
 	PROP_STATE_REASONS,
+	PROP_JOB_OUTGOING,
 };
 
 static void pd_printer_iface_init (PdPrinterIface *iface);
@@ -196,6 +198,9 @@ pd_printer_impl_get_property (GObject *object,
 		g_value_take_boxed (value, strv);
 		g_list_free (state_reasons);
 		break;
+	case PROP_JOB_OUTGOING:
+		g_value_set_boolean (value, printer->job_outgoing);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -262,6 +267,9 @@ pd_printer_impl_set_property (GObject *object,
 			gchar *r = g_strdup (*state_reason);
 			g_hash_table_insert (printer->state_reasons, r, r);
 		}
+		break;
+	case PROP_JOB_OUTGOING:
+		printer->job_outgoing = g_value_get_boolean (value);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -448,6 +456,19 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							     "The queue's state reasons",
 							     G_TYPE_STRV,
 							     G_PARAM_READWRITE));
+
+	/**
+	 * PdPrinterImpl:job-outgoing:
+	 *
+	 * Whether any job is outgoing.
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_JOB_OUTGOING,
+					 g_param_spec_boolean ("job-outgoing",
+							       "Job outgoing",
+							       "Whether any job is outgoing",
+							       FALSE,
+							       G_PARAM_READWRITE));
 }
 
 const gchar *

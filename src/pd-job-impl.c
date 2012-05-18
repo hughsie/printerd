@@ -54,6 +54,8 @@ struct _PdJobProcess
 	PdJobImpl	*job;
 	const gchar	*what;
 	gchar		*cmd;
+	gboolean	 started;
+	gboolean	 finished;
 	GPid		 pid;
 	guint		 process_watch_source;
 
@@ -129,7 +131,8 @@ pd_job_impl_finalize_jp (gpointer data)
 	struct _PdJobProcess *jp = data;
 	gint i;
 
-	if (jp->pid != -1) {
+	if (jp->started &&
+	    !jp->finished) {
 		g_debug ("[Job %u] Sending KILL signal to backend PID %d",
 			 pd_job_get_id (PD_JOB (jp->job)), jp->pid);
 		kill (jp->pid, SIGKILL);
@@ -474,26 +477,23 @@ pd_job_impl_check_job_transforming (PdJobImpl *job)
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
 
-		if (jp->pid != -1)
+		if (jp->started &&
+		    !jp->finished) {
 			/* There is still a filter chain
 			   process running. */
+			g_debug ("[Job %u] PID %u still running",
+				 pd_job_get_id (PD_JOB (job)),
+				 jp->pid);
 			break;
+		}
 	}
 
-	if (!filter) {
-		/* Has output to the backend finished? */
-		filter = g_list_first (job->filterchain);
-		if (filter)
-			jp = filter->data;
-		if (!filter ||
-		    (jp->channel[STDOUT_FILENO] == NULL))
-			/* Yes */
-			job_transforming = FALSE;
-	}
-
+	job_transforming = (filter != NULL);
 	if (!job_transforming)
 		pd_job_impl_remove_state_reason (job,
 						 "job-transforming");
+
+	return job_transforming;
 }
 
 static void
@@ -506,7 +506,7 @@ pd_job_impl_process_watch_cb (GPid pid,
 	guint job_id = pd_job_get_id (PD_JOB (job));
 
 	g_spawn_close_pid (pid);
-	jp->pid = -1;
+	jp->finished = TRUE;
 	g_debug ("[Job %u] PID %d finished with status %d",
 		 job_id, pid, WEXITSTATUS (status));
 
@@ -529,22 +529,23 @@ pd_job_impl_process_watch_cb (GPid pid,
 		pd_job_impl_remove_state_reason (job, "job-outgoing");
 
 	/* Adjust job state. */
-	if (WEXITSTATUS (status) != 0 &&
-	    job->pending_job_state == PD_JOB_STATE_COMPLETED) {
+	if (WEXITSTATUS (status) != 0) {
 		g_debug ("[Job %u] %s failed: aborting job",
 			 job_id, jp->what);
 
 		job->pending_job_state = PD_JOB_STATE_ABORTED;
 	}
 
-	if (job->backend.pid == -1) {
+	if (job->backend.started &&
+	    job->backend.finished) {
 		GList *filter;
 		struct _PdJobProcess *eachjp;
 		for (filter = g_list_first (job->filterchain);
 		     filter;
 		     filter = g_list_next (filter)) {
 			eachjp = filter->data;
-			if (eachjp->pid != -1)
+			if (eachjp->started &&
+			    !eachjp->finished)
 				break;
 		}
 
@@ -923,6 +924,7 @@ pd_job_impl_run_process (PdJobImpl *job,
 	for (s = argv + 1; *s; s++)
 		g_debug ("[Job %u]  Arg: %s", job_id, *s);
 
+	jp->started = TRUE;
 	ret = g_spawn_async ("/" /* wd */,
 			     argv,
 			     envp,
@@ -990,7 +992,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	gint pipe_fd[2];
 	GList *filter;
 
-	if (job->backend.pid != -1) {
+	if (job->filterchain) {
 		g_warning ("[Job %u] Already processing!", job_id);
 		goto out;
 	}
@@ -1093,37 +1095,6 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		jp->child_fd[PD_FD_SIDE] = pipe_fd[1];
 	}
 
-	/* Run backend */
-	pd_job_impl_add_state_reason (job, "job-outgoing");
-	if (!pd_job_impl_run_process (job, &job->backend, &error)) {
-		g_error ("[Job %u] Running backend: %s",
-			 job_id, error->message);
-		g_error_free (error);
-
-		/* Update job state */
-		pd_job_set_state (PD_JOB (job),
-				  PD_JOB_STATE_ABORTED);
-		goto fail;
-	}
-
-	job->backend.io_source[STDIN_FILENO] = -1;
-
-	channel = job->backend.channel[STDOUT_FILENO];
-	job->backend.io_source[STDOUT_FILENO] =
-		g_io_add_watch (channel,
-				G_IO_IN |
-				G_IO_HUP,
-				pd_job_impl_message_io_cb,
-				&job->backend);
-
-	channel = job->backend.channel[STDERR_FILENO];
-	job->backend.io_source[STDERR_FILENO] =
-		g_io_add_watch (channel,
-				G_IO_IN |
-				G_IO_HUP,
-				pd_job_impl_message_io_cb,
-				&job->backend);
-
 	/* Run filter chain */
 	pd_job_impl_add_state_reason (job, "job-transforming");
 	for (filter = g_list_first (job->filterchain);
@@ -1146,7 +1117,9 @@ pd_job_impl_start_processing (PdJobImpl *job)
 					jp);
 	}
 
-	job->pending_job_state = PD_JOB_STATE_COMPLETED;
+	/* When the filters have finished, the state will still be
+	   processing (the backend hasn't run yet). */
+	job->pending_job_state = PD_JOB_STATE_PROCESSING;
 
 	/* Watch the stdout of the last filter in the chain */
 	jp = g_list_first (job->filterchain)->data;
@@ -1170,6 +1143,64 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	goto out;
 }
 
+/**
+ * pd_job_impl_start_sending:
+ * @job: A #PdJobImpl
+ *
+ * Start sending the job to the printer.
+ */
+void
+pd_job_impl_start_sending (PdJobImpl *job)
+{
+	GError *error = NULL;
+	guint job_id = pd_job_get_id (PD_JOB (job));
+	GIOChannel *channel;
+
+	if (!job->filterchain) {
+		pd_job_impl_start_processing (job);
+		if (pd_job_get_state (PD_JOB (job)) ==
+		    PD_JOB_STATE_ABORTED)
+			goto out;
+	}
+
+	/* Run backend */
+	pd_job_impl_add_state_reason (job, "job-outgoing");
+	if (!pd_job_impl_run_process (job, &job->backend, &error)) {
+		g_error ("[Job %u] Running backend: %s",
+			 job_id, error->message);
+		g_error_free (error);
+
+		/* Update job state */
+		pd_job_set_state (PD_JOB (job),
+				  PD_JOB_STATE_ABORTED);
+		goto out;
+	}
+
+	job->backend.io_source[STDIN_FILENO] = -1;
+
+	channel = job->backend.channel[STDOUT_FILENO];
+	job->backend.io_source[STDOUT_FILENO] =
+		g_io_add_watch (channel,
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_message_io_cb,
+				&job->backend);
+
+	channel = job->backend.channel[STDERR_FILENO];
+	job->backend.io_source[STDERR_FILENO] =
+		g_io_add_watch (channel,
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_message_io_cb,
+				&job->backend);
+
+	/* When the backend finished the job state will be 'completed'. */
+	job->pending_job_state = PD_JOB_STATE_COMPLETED;
+
+ out:
+	return;
+}
+
 static void
 pd_job_impl_job_state_notify (PdJobImpl *job)
 {
@@ -1180,7 +1211,7 @@ pd_job_impl_job_state_notify (PdJobImpl *job)
 	case PD_JOB_STATE_PROCESSING:
 		/* Job has moved to processing state. */
 
-		if (job->backend.pid == -1)
+		if (job->filterchain == NULL)
 			/* Not running it yet, so do that. */
 			pd_job_impl_start_processing (job);
 
@@ -1464,6 +1495,8 @@ pd_job_impl_cancel (PdJob *_job,
 		goto out;
 	}
 
+	pd_job_impl_add_state_reason (job, "job-canceled-by-user");
+
         /* RFC 2911, 3.3.3: only these jobs in these states can be
 	   canceled */
 	switch (pd_job_get_state (_job)) {
@@ -1473,7 +1506,6 @@ pd_job_impl_cancel (PdJob *_job,
 
 		/* Change job state. */
 		g_debug ("[Job %u] Canceled", job_id);
-		pd_job_impl_add_state_reason (job, "job-canceled-by-user");
 		pd_job_set_state (_job, PD_JOB_STATE_CANCELED);
 
 		/* Return success */
@@ -1485,6 +1517,15 @@ pd_job_impl_cancel (PdJob *_job,
 	case PD_JOB_STATE_PROCESSING_STOPPED:
 		/* These need some time to tell the printer to
 		   e.g. eject the current page */
+
+		if (!pd_job_impl_check_job_transforming (job) &&
+		    !job->backend.started) {
+			/* Already finished */
+			g_debug ("[Job %u] Canceled after transformation",
+				 job_id);
+			pd_job_set_state (_job, PD_JOB_STATE_CANCELED);
+			goto done;
+		}
 
 		if (g_hash_table_lookup (job->state_reasons,
 					 "processing-to-stop-point")) {
@@ -1515,7 +1556,8 @@ pd_job_impl_cancel (PdJob *_job,
 		     filter;
 		     filter = g_list_next (filter)) {
 			struct _PdJobProcess *jp = filter->data;
-			if (jp->pid == -1)
+			if (!jp->started ||
+			    jp->finished)
 				continue;
 
 			g_debug ("[Job %u] Sending KILL signal to %s (PID %d)",
@@ -1526,7 +1568,8 @@ pd_job_impl_cancel (PdJob *_job,
 			g_spawn_close_pid (jp->pid);
 		}
 
-		if (job->backend.pid != -1) {
+		if (job->backend.started &&
+		    !job->backend.finished) {
 			g_debug ("[Job %u] Sending KILL signal to backend (PID %d)",
 				 job_id,
 				 job->backend.pid);
@@ -1534,6 +1577,7 @@ pd_job_impl_cancel (PdJob *_job,
 			g_spawn_close_pid (job->backend.pid);
 		}
 
+	done:
 		g_dbus_method_invocation_return_value (invocation,
 						       g_variant_new ("()"));
 		break;
