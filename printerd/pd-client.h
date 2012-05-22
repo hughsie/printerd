@@ -34,22 +34,22 @@ G_BEGIN_DECLS
 #define PD_CLIENT(o)    (G_TYPE_CHECK_INSTANCE_CAST ((o), PD_TYPE_CLIENT, PdClient))
 #define PD_IS_CLIENT(o) (G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_CLIENT))
 
-GType               pd_client_get_type           (void) G_GNUC_CONST;
-void                pd_client_new                (GCancellable        *cancellable,
-                                                      GAsyncReadyCallback  callback,
-                                                      gpointer             user_data);
-PdClient       *pd_client_new_finish         (GAsyncResult        *res,
-                                                      GError             **error);
-PdClient       *pd_client_new_sync           (GCancellable        *cancellable,
-                                                      GError             **error);
-GDBusObjectManager *pd_client_get_object_manager (PdClient        *client);
-PdManager      *pd_client_get_manager        (PdClient        *client);
-void                pd_client_settle             (PdClient        *client);
+GType		 pd_client_get_type		(void) G_GNUC_CONST;
+void		 pd_client_new			(GCancellable	*cancellable,
+						 GAsyncReadyCallback callback,
+						 gpointer	user_data);
+PdClient	*pd_client_new_finish		(GAsyncResult	*res,
+						 GError		**error);
+PdClient	*pd_client_new_sync		(GCancellable	*cancellable,
+						 GError		**error);
+GDBusObjectManager *pd_client_get_object_manager (PdClient	*client);
+PdManager	*pd_client_get_manager		(PdClient	*client);
+void		 pd_client_settle		(PdClient	*client);
 
-PdObject       *pd_client_get_object          (PdClient        *client,
-                                                       const gchar         *object_path);
-PdObject       *pd_client_peek_object         (PdClient        *client,
-                                                       const gchar         *object_path);
+PdObject	*pd_client_get_object		(PdClient	*client,
+						 const gchar	*object_path);
+PdObject	*pd_client_peek_object		(PdClient	*client,
+						 const gchar	*object_path);
 
 G_END_DECLS
 
