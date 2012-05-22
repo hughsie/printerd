@@ -490,7 +490,7 @@ pd_client_get_manager (PdClient *client)
  * are queued up and dispatched after the synchronous call ends; and
  * 2. when using asynchronous calls where the return value references
  * a newly created object (such as the <link
- * linkend="gdbus-method-org-freedesktop-printerd-Manager.LoopSetup">Manager.LoopSetup()</link> method).
+ * linkend="gdbus-method-org-freedesktop-printerd-Manager.CreatePrinter">Manager.CreatePrinter()</link> method).
  */
 void
 pd_client_settle (PdClient *client)
