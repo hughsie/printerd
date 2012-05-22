@@ -18,17 +18,17 @@ INCLUDES = \
 
 # ----------------------------------------------------------------------
 
-bin_PROGRAMS = pd-client
+bin_PROGRAMS = pd-cli
 
-pd_client_SOURCES =						\
-	pd-client.c						\
+pd_cli_SOURCES =						\
+	pd-cli.c						\
 	$(NULL)
 
-pd_client_CFLAGS =						\
+pd_cli_CFLAGS =							\
 	-DG_LOG_DOMAIN=\"printerd\"				\
 	$(NULL)
 
-pd_client_LDADD =						\
+pd_cli_LDADD =							\
 	$(GLIB_LIBS)						\
 	$(top_builddir)/src/libprinterddaemon.la		\
 	$(NULL)
