@@ -301,6 +301,7 @@
 	job is available for processing.
     -->
     <method name="AddDocument">
+      <annotation name="org.gtk.GDBus.C.UnixFD" value="1"/>
       <arg name="options" type="a{sv}" direction="in"/>
       <arg name="file_descriptor" type="h" direction="in"/>
     </method>
