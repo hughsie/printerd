@@ -1249,13 +1249,12 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 static gboolean
 pd_job_impl_add_document (PdJob *_job,
 			  GDBusMethodInvocation *invocation,
+			  GUnixFDList *fd_list,
 			  GVariant *options,
 			  GVariant *file_descriptor)
 {
 	PdJobImpl *job = PD_JOB_IMPL (_job);
 	guint job_id = pd_job_get_id (PD_JOB (job));
-	GDBusMessage *message;
-	GUnixFDList *fd_list;
 	gint32 fd_handle;
 	GError *error = NULL;
 	GVariant *attr_user;
@@ -1298,26 +1297,30 @@ pd_job_impl_add_document (PdJob *_job,
 	}
 
 	g_debug ("[Job %u] Adding document", job_id);
-	message = g_dbus_method_invocation_get_message (invocation);
-	fd_list = g_dbus_message_get_unix_fd_list (message);
-	if (fd_list != NULL && g_unix_fd_list_get_length (fd_list) == 1) {
-		fd_handle = g_variant_get_handle (file_descriptor);
-		job->document_fd = g_unix_fd_list_get (fd_list,
-						       fd_handle,
-						       &error);
-		if (job->document_fd < 0) {
-			g_debug ("[Job %u] failed to get file descriptor: %s",
-				 job_id, error->message);
-			g_dbus_method_invocation_return_gerror (invocation,
-								error);
-			g_error_free (error);
-			goto out;
-		}
-
-		g_debug ("[Job %u] Got file descriptor: %d",
-			 job_id, job->document_fd);
+	if (fd_list == NULL || g_unix_fd_list_get_length (fd_list) != 1) {
+		g_error ("[Job %u] Bad AddDocument call", job_id);
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Bad AddDocumentCall"));
+		goto out;
 	}
 
+	fd_handle = g_variant_get_handle (file_descriptor);
+	job->document_fd = g_unix_fd_list_get (fd_list,
+					       fd_handle,
+					       &error);
+	if (job->document_fd < 0) {
+		g_debug ("[Job %u] failed to get file descriptor: %s",
+			 job_id, error->message);
+		g_dbus_method_invocation_return_gerror (invocation,
+							error);
+		g_error_free (error);
+		goto out;
+	}
+
+	g_debug ("[Job %u] Got file descriptor: %d",
+		 job_id, job->document_fd);
 	g_dbus_method_invocation_return_value (invocation, NULL);
 
  out:
