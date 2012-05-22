@@ -454,7 +454,7 @@ pd_client_get_object_manager (PdClient        *client)
  * Gets the #PdManager interface on the well-known
  * <literal>/org/freedesktop/printerd/Manager</literal> object.
  *
- * Returns: (transfer none): A #PdManager or %NULL if the printerdd
+ * Returns: (transfer none): A #PdManager or %NULL if the printerd
  * daemon is not currently running. Do not free, the instance is owned
  * by @client.
  */
