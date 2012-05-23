@@ -1,0 +1,58 @@
+# Translation of printerd into Indonesian
+# Copyright (C) 2012 THE printerd'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the printerd package.
+# Andika Triwidada <andika@gmail.com>, 2012.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: printerd master\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2012-05-22 20:50+0700\n"
+"PO-Revision-Date: 2012-05-22 20:54+0700\n"
+"Last-Translator: Andika Triwidada <andika@gmail.com>\n"
+"Language-Team: Indonesia <id@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Poedit-Language: Indonesian\n"
+"X-Poedit-Country: INDONESIA\n"
+"X-Poedit-SourceCharset: utf-8\n"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:1
+msgid "Add a job"
+msgstr "Tambah tugas"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:2
+msgid "Add a printer"
+msgstr "Tambah pencetak"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:3
+#: ../src/pd-printer-impl.c:799
+msgid "Authentication is required to add a job"
+msgstr "Otentikasi diperlukan untuk menambah tugas"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:4
+#: ../src/pd-device-impl.c:303
+#: ../src/pd-manager-impl.c:300
+msgid "Authentication is required to add a printer"
+msgstr "Otentikasi diperlukan untuk menambah pencetak"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:5
+msgid "Authentication is required to cancel a job"
+msgstr "Otentikasi diperlukan untuk membatalkan tugas"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:6
+msgid "Cancel a job"
+msgstr "Batalkan tugas"
+
+#: ../src/main.c:119
+#: ../tools/pd-client.c:503
+msgid "Show extra debugging information"
+msgstr "Tampilkan informasi pengawakutuan ekstra"
+
+#: ../src/pd-manager-impl.c:337
+msgid "Not found"
+msgstr "Tak ditemukan"
+
