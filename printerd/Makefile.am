@@ -1,5 +1,5 @@
 
-INCLUDES = \
+AM_CPPFLAGS = \
 	-I$(top_builddir) -I$(top_srcdir)				\
 	-DPACKAGE_LIBEXEC_DIR=\""$(libexecdir)"\"			\
 	-DPACKAGE_SYSCONF_DIR=\""$(sysconfdir)"\"			\
@@ -74,11 +74,8 @@ libprinterd_la_SOURCES =						\
 	pd-types.h							\
 	$(NULL)
 
-libprinterd_la_CPPFLAGS =						\
-	-DG_LOG_DOMAIN=\"libprinterd\"					\
-	$(NULL)
-
 libprinterd_la_CFLAGS =							\
+	-DG_LOG_DOMAIN=\"libprinterd\"					\
 	$(GLIB_CFLAGS)							\
 	$(GIO_CFLAGS)							\
 	$(NULL)
