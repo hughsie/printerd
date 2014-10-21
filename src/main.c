@@ -124,8 +124,6 @@ main (int argc, char **argv)
 		{NULL }
 	};
 
-	g_type_init ();
-
 	/* avoid gvfs (http://bugzilla.gnome.org/show_bug.cgi?id=526454) */
 	if (!g_setenv ("GIO_USE_VFS", "local", TRUE)) {
 		g_printerr ("Error setting GIO_USE_GVFS\n");
