@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2012 Tim Waugh <twaugh@redhat.com>
+ * Copyright (C) 2012, 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -141,10 +141,11 @@ pd_job_impl_finalize_jp (gpointer data)
 
 	g_free (jp->cmd);
 
-	if (jp->process_watch_source != 0)
+	if (jp->process_watch_source) {
 		g_source_remove (jp->process_watch_source);
+	}
 	for (i = 0; i < PD_FD_MAX; i++) {
-		if (jp->io_source[i] != -1)
+		if (jp->io_source[i])
 			g_source_remove (jp->io_source[i]);
 		if (jp->channel[i])
 			g_io_channel_unref (jp->channel[i]);
@@ -285,7 +286,7 @@ pd_job_impl_init_jp (PdJobImpl *job,
 	jp->job = job;
 	jp->pid = -1;
 	for (i = 0; i < PD_FD_MAX; i++) {
-		jp->io_source[i] = -1;
+		jp->io_source[i] = 0;
 		jp->child_fd[i] = -1;
 		jp->parent_fd[i] = -1;
 	}
@@ -507,13 +508,14 @@ pd_job_impl_process_watch_cb (GPid pid,
 
 	g_spawn_close_pid (pid);
 	jp->finished = TRUE;
+	jp->process_watch_source = 0;
 	g_debug ("[Job %u] PID %d finished with status %d",
 		 job_id, pid, WEXITSTATUS (status));
 
 	/* Close its input file descriptors */
-	if (jp->io_source[STDIN_FILENO] != -1) {
+	if (jp->io_source[STDIN_FILENO]) {
 		g_source_remove (jp->io_source[STDIN_FILENO]);
-		jp->io_source[STDIN_FILENO] = -1;
+		jp->io_source[STDIN_FILENO] = 0;
 	}
 
 	if (jp->channel[STDIN_FILENO]) {
@@ -669,7 +671,7 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 		}
 
 		if (!keep_source) {
-			thisjp->io_source[thisfd] = -1;
+			thisjp->io_source[thisfd] = 0;
 
 			if (status == G_IO_STATUS_EOF) {
 				thisjp->channel[thisfd] = NULL;
@@ -699,7 +701,7 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 					       TRUE,
 					       NULL);
 			keep_source = FALSE;
-			thisjp->io_source[thisfd] = -1;
+			thisjp->io_source[thisfd] = 0;
 			g_debug ("[Job %u] Closing input to %s",
 				 job_id, thisjp->what);
 			thisjp->channel[thisfd] = NULL;
@@ -737,7 +739,7 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 		if (job->buflen - job->bufsent == 0) {
 			/* Need to read more data now */
 			keep_source = FALSE;
-			thisjp->io_source[thisfd] = -1;
+			thisjp->io_source[thisfd] = 0;
 
 			nextchannel = nextjp->channel[nextfd];
 			if (nextchannel)
@@ -808,7 +810,7 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 		g_debug ("[Job %u] %s fd %d closed",
 			 job_id, jp->what, i);
 		jp->channel[i] = NULL;
-		jp->io_source[i] = -1;
+		jp->io_source[i] = 0;
 		keep_source = FALSE;
 		break;
 	case G_IO_STATUS_AGAIN:
@@ -1176,7 +1178,7 @@ pd_job_impl_start_sending (PdJobImpl *job)
 		goto out;
 	}
 
-	job->backend.io_source[STDIN_FILENO] = -1;
+	job->backend.io_source[STDIN_FILENO] = 0;
 
 	channel = job->backend.channel[STDOUT_FILENO];
 	job->backend.io_source[STDOUT_FILENO] =
@@ -1546,7 +1548,10 @@ pd_job_impl_cancel (PdJob *_job,
 			/* Stop sending data to the backend. */
 			g_debug ("[Job %u] Stop sending data to the backend",
 				 job_id);
-			g_source_remove (job->backend.io_source[STDIN_FILENO]);
+			if (job->backend.io_source[STDIN_FILENO]) {
+				g_source_remove (job->backend.io_source[STDIN_FILENO]);
+				job->backend.io_source[STDIN_FILENO] = 0;
+			}
 			g_io_channel_shutdown (job->backend.channel[STDIN_FILENO],
 					       FALSE,
 					       NULL);
