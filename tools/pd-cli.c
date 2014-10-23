@@ -504,8 +504,6 @@ main (int argc, char **argv)
 		{ NULL }
 	};
 
-	g_type_init ();
-
 	opt_context = g_option_context_new ("command");
 	g_option_context_set_summary (opt_context,
 				      "Commands:\n"
