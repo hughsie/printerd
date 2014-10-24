@@ -51,7 +51,6 @@ struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
 	PdDaemon		*daemon;
-/**/	gchar			*location;
 /**/	gchar			*ieee1284_id;
 /**/	GHashTable		*defaults;
 /**/	GHashTable		*supported;
@@ -71,7 +70,6 @@ enum
 {
 	PROP_0,
 	PROP_DAEMON,
-	PROP_LOCATION,
 	PROP_IEEE1284_ID,
 	PROP_DEFAULTS,
 	PROP_SUPPORTED,
@@ -115,7 +113,6 @@ pd_printer_impl_finalize (GObject *object)
 
 	g_debug ("[Printer %s] Finalize", printer->id);
 	/* note: we don't hold a reference to printer->daemon */
-	g_free (printer->location);
 	g_free (printer->ieee1284_id);
 	g_hash_table_unref (printer->defaults);
 	g_hash_table_unref (printer->supported);
@@ -144,9 +141,6 @@ pd_printer_impl_get_property (GObject *object,
 	switch (prop_id) {
 	case PROP_DAEMON:
 		g_value_set_object (value, pd_printer_impl_get_daemon (printer));
-		break;
-	case PROP_LOCATION:
-		g_value_set_string (value, printer->location);
 		break;
 	case PROP_IEEE1284_ID:
 		g_value_set_string (value, printer->ieee1284_id);
@@ -214,10 +208,6 @@ pd_printer_impl_set_property (GObject *object,
 		g_assert (printer->daemon == NULL);
 		/* we don't take a reference to the daemon */
 		printer->daemon = g_value_get_object (value);
-		break;
-	case PROP_LOCATION:
-		g_free (printer->location);
-		printer->location = g_value_dup_string (value);
 		break;
 	case PROP_IEEE1284_ID:
 		g_free (printer->ieee1284_id);
@@ -344,19 +334,6 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							      G_PARAM_WRITABLE |
 							      G_PARAM_CONSTRUCT_ONLY |
 							      G_PARAM_STATIC_STRINGS));
-
-	/**
-	 * PdPrinterImpl:location:
-	 *
-	 * The location of the queue.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_LOCATION,
-					 g_param_spec_string ("location",
-							      "Location",
-							      "The location of the queue",
-							      NULL,
-							      G_PARAM_READWRITE));
 
 	/**
 	 * PdPrinterImpl:ieee1284-id:
