@@ -19,12 +19,16 @@ from gi.repository import GObject
 from gi.repository import Gtk
 from gi.repository import Pango
 
-IFACE_JOB = "org.freedesktop.printerd.Job"
-IFACE_PRINTER = "org.freedesktop.printerd.Printer"
+IFACE_PRINTERD_PREFIX = "org.freedesktop.printerd"
+
+IFACE_MANAGER = IFACE_PRINTERD_PREFIX + ".Manager"
+IFACE_DEVICE  = IFACE_PRINTERD_PREFIX + ".Device"
+IFACE_PRINTER = IFACE_PRINTERD_PREFIX + ".Printer"
+IFACE_JOB     = IFACE_PRINTERD_PREFIX + ".Job"
 
 class MainWindow(GObject.GObject):
-    TVCOL_NAME = 0
-    TVCOL_PATH = 1
+    TVCOL_NAME  = 0
+    TVCOL_PATH  = 1
     TVCOL_IFACE = 2
 
     def __init__ (self):
@@ -54,7 +58,7 @@ class MainWindow(GObject.GObject):
         self.mainwindow.show_all ()
         self.mainwindow.connect ("delete-event", Gtk.main_quit)
         self.printers = dict() # D-Bus path to store iter
-        self.jobs = dict() # D-Bus path to store iter
+        self.jobs = dict()     # D-Bus path to store iter
 
         self.client = printerd.Client.new_sync (None)
         manager = self.client.get_object_manager ()
@@ -157,7 +161,26 @@ class MainWindow(GObject.GObject):
         self.store.set_value (iter, self.TVCOL_IFACE, iface)
 
     def object_removed (self, manager, obj):
-        print ("object removed: %s" % repr (obj))
+        path = obj.get_property ('g-object-path')
+        print ("object removed: %s" % path)
+        if path in self.jobs:
+            iter = self.jobs[path]
+        elif path in self.printers:
+            iter = self.printers[path]
+            while self.store.iter_has_child (iter):
+                print ("Iter for path %s has child; removing" % path)
+                jobiter = self.store.iter_nth_child (iter, 0)
+                jobpath = self.store.get_value (jobiter, self.TVCOL_PATH)
+                del self.jobs[jobpath]
+                self.store.remove (jobiter)
+        else:
+            print ("unknown path: %s" % path)
+            return
+
+        if iter == None:
+            return
+
+        self.store.remove (iter)
 
     def interface_removed (self, manager, obj, iface):
         print ("interface removed: %s" % repr (iface))
