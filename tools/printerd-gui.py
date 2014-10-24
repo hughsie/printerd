@@ -27,9 +27,12 @@ IFACE_PRINTER = IFACE_PRINTERD_PREFIX + ".Printer"
 IFACE_JOB     = IFACE_PRINTERD_PREFIX + ".Job"
 
 class MainWindow(GObject.GObject):
-    TVCOL_NAME  = 0
-    TVCOL_PATH  = 1
-    TVCOL_IFACE = 2
+    TVCOL_ID      = 0
+    TVCOL_NAME    = 1
+    TVCOL_STATE   = 2
+    TVCOL_REASONS = 3
+    TVCOL_PATH    = 4
+    TVCOL_IFACE   = 5
 
     def __init__ (self):
         super (GObject.GObject, self).__init__ ()
@@ -37,20 +40,20 @@ class MainWindow(GObject.GObject):
         treeview = Gtk.TreeView ()
         self.store = Gtk.TreeStore (GObject.TYPE_STRING,
                                     GObject.TYPE_STRING,
+                                    GObject.TYPE_STRING,
+                                    GObject.TYPE_STRING,
+                                    GObject.TYPE_STRING,
                                     GObject.TYPE_OBJECT)
         treeview.set_model (self.store)
-        for name, col, setter in [("Name", self.TVCOL_NAME, None),
-                                  ("State", None, self.update_state),
-                                  ("Path", self.TVCOL_PATH, None)]:
+        for name, col in [("ID", self.TVCOL_ID),
+                          ("Name", self.TVCOL_NAME),
+                          ("State", self.TVCOL_STATE),
+                          ("Reasons", self.TVCOL_REASONS),
+                          ("Path", self.TVCOL_PATH)]:
             cell = Gtk.CellRendererText ()
             cell.set_property ("ellipsize", Pango.EllipsizeMode.END)
             cell.set_property ("width-chars", 20)
-            if setter:
-                column.set_cell_data_func (cell, setter, None)
-                column = Gtk.TreeViewColumn (name, cell)
-            else:
-                column = Gtk.TreeViewColumn (name, cell, text=col)
-
+            column = Gtk.TreeViewColumn (name, cell, text=col)
             column.set_resizable (True)
             treeview.append_column (column)
 
@@ -77,32 +80,6 @@ class MainWindow(GObject.GObject):
             for iface in ifaces:
                 if iface.get_info ().name == IFACE_JOB:
                     self.interface_added (manager, obj, iface)
-
-    def update_state (self, column, cell, model, iter, data):
-        iface = model.get_value (iter, self.TVCOL_IFACE)
-        name = iface.get_info ().name
-        unknown = "Unknown"
-        state_str = ""
-        if name == IFACE_DEVICE:
-            pass # no state property
-        elif name == IFACE_PRINTER:
-            statemap = { 3: "Idle",
-                         4: "Processing",
-                         5: "Stopped" }
-            state = iface.get_property ('state')
-            state_str = statemap.get (state, unknown)
-        elif name == IFACE_JOB:
-            statemap = { 3: "Pending",
-                         4: "Held",
-                         5: "Processing",
-                         6: "Paused",
-                         7: "Canceled",
-                         8: "Aborted",
-                         9: "Completed" }
-            state = iface.get_property ('state')
-            state_str = statemap.get (state, unknown)
-
-        cell.set_property ("text", state_str)
 
     def object_added (self, manager, obj):
         print ("object added: %s" % repr (obj))
@@ -134,12 +111,55 @@ class MainWindow(GObject.GObject):
     def printer_added (self, obj, iface):
         path = obj.get_object_path ()
         print ("Printer at %s" % path)
-        iter = self.store.append (None)
-        self.printers[path] = iter
-        self.store.set (iter, self.TVCOL_NAME, iface.get_property ('name'))
-        self.store.set (iter, self.TVCOL_PATH, path)
-        self.store.set (iter, self.TVCOL_IFACE, iface)
-        iface.connect ("notify::state", self.printer_changed)
+        printeriter = self.store.append (None)
+        self.printers[path] = printeriter
+        name = iface.get_property ('name')
+        self.store.set (printeriter, self.TVCOL_NAME, name)
+        self.store.set (printeriter, self.TVCOL_PATH, path)
+        self.store.set (printeriter, self.TVCOL_IFACE, iface)
+        iface.connect ("notify::state", self.printer_state_changed)
+        iface.connect ("notify::state-reasons",
+                       self.printer_state_reasons_changed)
+
+        self.set_printer_state (printeriter, iface)
+
+    def get_printer_path_from_iface (self, iface):
+        obj = iface.get_object ()
+        path = obj.get_object_path ()
+        if path not in self.printers:
+            return None
+
+        return path
+
+    def set_printer_state (self, printeriter, iface):
+        statemap = { 3: "Idle",
+                     4: "Processing",
+                     5: "Stopped" }
+        state = iface.get_property ('state')
+        state_str = statemap.get (state, "Unknown")
+        self.store.set_value (printeriter, self.TVCOL_STATE, state_str)
+
+    def set_printer_state_reasons (self, printeriter, iface):
+        reasons = iface.get_property ('state-reasons')
+        self.store.set_value (printeriter, self.TVCOL_REASONS, str (reasons))
+
+    def printer_state_changed (self, iface, param):
+        path = self.get_printer_path_from_iface (iface)
+        if path == None:
+            print ("Non-existent printer changed?!")
+            return
+
+        print (path + " changed state")
+        self.set_printer_state (self.printers[path], iface)
+
+    def printer_state_reasons_changed (self, iface, param):
+        path = self.get_printer_path_from_iface (iface)
+        if path == None:
+            print ("Non-existent printer changed?!")
+            return
+
+        print (path + " changed state-reasons")
+        self.set_printer_state_reasons (self.printers[path], iface)
 
     def job_added (self, obj, iface):
         path = obj.get_object_path ()
@@ -149,34 +169,59 @@ class MainWindow(GObject.GObject):
             print ("Orphan job?!")
             return
 
-        iter = self.store.append (self.printers[printer])
-        self.jobs[path] = iter
-        self.store.set (iter, self.TVCOL_NAME, iface.get_property ('name'))
-        self.store.set (iter, self.TVCOL_PATH, path)
-        self.store.set (iter, self.TVCOL_IFACE, iface)
-        iface.connect ("notify::state", self.job_changed)
+        jobiter = self.store.append (self.printers[printer])
+        self.jobs[path] = jobiter
+        self.store.set (jobiter, self.TVCOL_ID, str (iface.get_property ('id')))
+        self.store.set (jobiter, self.TVCOL_NAME, iface.get_property ('name'))
+        self.store.set (jobiter, self.TVCOL_PATH, path)
+        self.store.set (jobiter, self.TVCOL_IFACE, iface)
+        iface.connect ("notify::state", self.job_state_changed)
+        iface.connect ("notify::state-reasons", self.job_state_reasons_changed)
 
-    def job_changed (self, iface, param):
+        self.set_job_state (jobiter, iface)
+        self.set_job_state_reasons (jobiter, iface)
+
+    def get_job_path_from_iface (self, iface):
         obj = iface.get_object ()
         path = obj.get_object_path ()
-        print (path + " changed")
         if path not in self.jobs:
+            return None
+
+        return path
+
+    def set_job_state (self, jobiter, iface):
+        statemap = { 3: "Pending",
+                     4: "Held",
+                     5: "Processing",
+                     6: "Paused",
+                     7: "Canceled",
+                     8: "Aborted",
+                     9: "Completed" }
+        state = iface.get_property ('state')
+        state_str = statemap.get (state, "Unknown")
+        self.store.set_value (jobiter, self.TVCOL_STATE, state_str)
+
+    def job_state_changed (self, iface, param):
+        path = self.get_job_path_from_iface (iface)
+        if path == None:
             print ("Non-existent job changed?!")
             return
 
-        iter = self.jobs[path]
-        self.store.set_value (iter, self.TVCOL_IFACE, iface)
+        print (path + " changed state")
+        self.set_job_state (self.jobs[path], iface)
 
-    def printer_changed (self, iface, param):
-        obj = iface.get_object ()
-        path = obj.get_object_path ()
-        print (path + " changed")
-        if path not in self.printers:
-            print ("Non-existent printer changed?!")
+    def set_job_state_reasons (self, jobiter, iface):
+        reasons = iface.get_property ('state-reasons')
+        self.store.set_value (jobiter, self.TVCOL_REASONS, str (reasons))
+
+    def job_state_reasons_changed (self, iface, param):
+        path = self.get_job_path_from_iface (iface)
+        if path == None:
+            print ("Non-existent job changed?!")
             return
 
-        iter = self.printers[path]
-        self.store.set_value (iter, self.TVCOL_IFACE, iface)
+        print (path + " changed state-reasons")
+        self.set_job_state_reasons (self.jobs[path], iface)
 
     def object_removed (self, manager, obj):
         path = obj.get_property ('g-object-path')
