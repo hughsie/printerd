@@ -76,7 +76,6 @@ struct _PdJobImpl
 {
 	PdJobSkeleton	 parent_instance;
 	PdDaemon	*daemon;
-	gchar		*name;
 	GHashTable	*attributes;
 
 	gint		 document_fd;
@@ -101,7 +100,6 @@ enum
 {
 	PROP_0,
 	PROP_DAEMON,
-	PROP_NAME,
 	PROP_ATTRIBUTES,
 };
 
@@ -158,7 +156,6 @@ pd_job_impl_finalize (GObject *object)
 
 	g_debug ("[Job %u] Finalize", job_id);
 	/* note: we don't hold a reference to job->daemon */
-	g_free (job->name);
 	if (job->document_fd != -1)
 		close (job->document_fd);
 	if (job->document_filename) {
@@ -196,9 +193,6 @@ pd_job_impl_get_property (GObject *object,
 	case PROP_DAEMON:
 		g_value_set_object (value, job->daemon);
 		break;
-	case PROP_NAME:
-		g_value_set_string (value, job->name);
-		break;
 	case PROP_ATTRIBUTES:
 		g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
 		g_hash_table_iter_init (&iter, job->attributes);
@@ -232,10 +226,6 @@ pd_job_impl_set_property (GObject *object,
 		g_assert (job->daemon == NULL);
 		/* we don't take a reference to the daemon */
 		job->daemon = g_value_get_object (value);
-		break;
-	case PROP_NAME:
-		g_free (job->name);
-		job->name = g_value_dup_string (value);
 		break;
 	case PROP_ATTRIBUTES:
 		g_hash_table_remove_all (job->attributes);
@@ -324,19 +314,6 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							      G_PARAM_WRITABLE |
 							      G_PARAM_CONSTRUCT_ONLY |
 							      G_PARAM_STATIC_STRINGS));
-
-	/**
-	 * PdJobImpl:name:
-	 *
-	 * The name for the job.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_NAME,
-					 g_param_spec_string ("name",
-							      "Name",
-							      "The name for the job",
-							      NULL,
-							      G_PARAM_READWRITE));
 
 	/**
 	 * PdJobImpl:attributes:
