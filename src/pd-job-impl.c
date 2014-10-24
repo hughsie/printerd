@@ -76,7 +76,6 @@ struct _PdJobImpl
 {
 	PdJobSkeleton	 parent_instance;
 	PdDaemon	*daemon;
-	GHashTable	*attributes;
 
 	gint		 document_fd;
 	gchar		*document_filename;
@@ -100,7 +99,6 @@ enum
 {
 	PROP_0,
 	PROP_DAEMON,
-	PROP_ATTRIBUTES,
 };
 
 static void pd_job_iface_init (PdJobIface *iface);
@@ -162,7 +160,6 @@ pd_job_impl_finalize (GObject *object)
 		g_unlink (job->document_filename);
 		g_free (job->document_filename);
 	}
-	g_hash_table_unref (job->attributes);
 
 	/* Shut down filter chain */
 	g_list_free_full (job->filterchain,
@@ -184,25 +181,10 @@ pd_job_impl_get_property (GObject *object,
 			  GParamSpec *pspec)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
-	GVariantBuilder builder;
-	GHashTableIter iter;
-	gchar *dkey;
-	GVariant *dvalue;
 
 	switch (prop_id) {
 	case PROP_DAEMON:
 		g_value_set_object (value, job->daemon);
-		break;
-	case PROP_ATTRIBUTES:
-		g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
-		g_hash_table_iter_init (&iter, job->attributes);
-		while (g_hash_table_iter_next (&iter,
-					       (gpointer *) &dkey,
-					       (gpointer *) &dvalue))
-			g_variant_builder_add (&builder, "{sv}",
-					       g_strdup (dkey), dvalue);
-
-		g_value_set_variant (value, g_variant_builder_end (&builder));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -217,21 +199,12 @@ pd_job_impl_set_property (GObject *object,
 			  GParamSpec *pspec)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
-	GVariantIter iter;
-	gchar *dkey;
-	GVariant *dvalue;
 
 	switch (prop_id) {
 	case PROP_DAEMON:
 		g_assert (job->daemon == NULL);
 		/* we don't take a reference to the daemon */
 		job->daemon = g_value_get_object (value);
-		break;
-	case PROP_ATTRIBUTES:
-		g_hash_table_remove_all (job->attributes);
-		g_variant_iter_init (&iter, g_value_get_variant (value));
-		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-			g_hash_table_insert (job->attributes, dkey, dvalue);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -262,11 +235,6 @@ pd_job_impl_init (PdJobImpl *job)
 	job->document_fd = -1;
 
 	pd_job_impl_init_jp (job, &job->backend);
-
-	job->attributes = g_hash_table_new_full (g_str_hash,
-						 g_str_equal,
-						 g_free,
-						 (GDestroyNotify) g_variant_unref);
 
 	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING_HELD);
 	gchar *incoming[] = { g_strdup ("job-incoming"), NULL };
@@ -315,19 +283,6 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							      G_PARAM_CONSTRUCT_ONLY |
 							      G_PARAM_STATIC_STRINGS));
 
-	/**
-	 * PdJobImpl:attributes:
-	 *
-	 * The name for the job.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_ATTRIBUTES,
-					 g_param_spec_variant ("attributes",
-							       "Attributes",
-							       "The job attributes",
-							       G_VARIANT_TYPE ("a{sv}"),
-							       NULL,
-							       G_PARAM_READWRITE));
 }
 
 /**
@@ -863,6 +818,25 @@ pd_job_impl_process_setup (gpointer user_data)
 		}
 }
 
+static GVariant *
+get_attribute_value (GObject *job,
+		     const gchar *key)
+{
+	GValue attributes = G_VALUE_INIT;
+	GVariantIter iter;
+	gchar *dkey;
+	GVariant *dvalue;
+
+	g_value_init (&attributes, G_TYPE_VARIANT);
+	g_object_get_property (G_OBJECT (job), "attributes", &attributes);
+	g_variant_iter_init (&iter, g_value_get_variant (&attributes));
+	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
+		if (!strcmp (dkey, key))
+			return dvalue;
+
+	return NULL;
+}
+
 static gboolean
 pd_job_impl_run_process (PdJobImpl *job,
 			 struct _PdJobProcess *jp,
@@ -879,8 +853,9 @@ pd_job_impl_run_process (PdJobImpl *job,
 	gint i;
 
 	uri = pd_job_get_device_uri (PD_JOB (job));
-	variant = g_hash_table_lookup (job->attributes,
-				       "job-originating-user-name");
+
+	variant = get_attribute_value (G_OBJECT (job),
+					"job-originating-user-name");
 	if (variant) {
 		username = g_variant_dup_string (variant, NULL);
 		/* no need to free variant: we don't own a reference */
@@ -1227,9 +1202,50 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 			   const gchar *name,
 			   GVariant *value)
 {
-	g_hash_table_insert (job->attributes,
+	GValue attributes = G_VALUE_INIT;
+	GVariantBuilder builder;
+	GVariantIter viter;
+	GHashTable *ht;
+	GHashTableIter htiter;
+	gchar *dkey;
+	GVariant *dvalue;
+
+	/* Read the current value of the 'attributes' property */
+	g_value_init (&attributes, G_TYPE_VARIANT);
+	g_object_get_property (G_OBJECT (job), "attributes", &attributes);
+
+	/* Convert to a GHashTable */
+	ht = g_hash_table_new_full (g_str_hash,
+				    g_str_equal,
+				    g_free,
+				    (GDestroyNotify) g_variant_unref);
+
+	g_variant_iter_init (&viter, g_value_get_variant (&attributes));
+	while (g_variant_iter_next (&viter, "{sv}", &dkey, &dvalue))
+		g_hash_table_insert (ht, dkey, dvalue);
+
+	/* Set the attribute value */
+	g_hash_table_insert (ht,
 			     g_strdup (name),
 			     g_variant_ref_sink (value));
+
+	/* Convert back to a GValue */
+	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
+	g_hash_table_iter_init (&htiter, ht);
+	while (g_hash_table_iter_next (&htiter,
+				       (gpointer *) &dkey,
+				       (gpointer *) &dvalue))
+		g_variant_builder_add (&builder, "{sv}",
+				       g_strdup (dkey), dvalue);
+
+	g_value_set_variant (&attributes, g_variant_builder_end (&builder));
+
+	/* Write it back to the property */
+	g_object_set_property (G_OBJECT (job),
+			       "attributes",
+			       &attributes);
+
+	g_hash_table_unref (ht);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1259,7 +1275,7 @@ pd_job_impl_add_document (PdJob *_job,
 		goto out;
 
 	/* Check if this user owns the job */
-	attr_user = g_hash_table_lookup (job->attributes,
+	attr_user = get_attribute_value (G_OBJECT (job),
 					 "job-originating-user-name");
 	if (attr_user)
 		originating_user = g_variant_get_string (attr_user, NULL);
@@ -1344,7 +1360,7 @@ pd_job_impl_start (PdJob *_job,
 		goto out;
 
 	/* Check if this user owns the job */
-	attr_user = g_hash_table_lookup (job->attributes,
+	attr_user = get_attribute_value (G_OBJECT (job),
 					 "job-originating-user-name");
 	if (attr_user)
 		originating_user = g_variant_get_string (attr_user, NULL);
@@ -1471,7 +1487,7 @@ pd_job_impl_cancel (PdJob *_job,
 		goto out;
 
 	/* Check if this user owns the job */
-	attr_user = g_hash_table_lookup (job->attributes,
+	attr_user = get_attribute_value (G_OBJECT (job),
 					 "job-originating-user-name");
 	if (attr_user)
 		originating_user = g_variant_get_string (attr_user, NULL);
