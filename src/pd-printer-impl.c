@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
  * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,13 +51,12 @@ struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
 	PdDaemon		*daemon;
-	gchar			*name;
-	gchar			*description;
-	gchar			*location;
-	gchar			*ieee1284_id;
-	GHashTable		*defaults;
-	GHashTable		*supported;
-	GHashTable		*state_reasons;	/* set, i.e. key==value */
+/**/	gchar			*description;
+/**/	gchar			*location;
+/**/	gchar			*ieee1284_id;
+/**/	GHashTable		*defaults;
+/**/	GHashTable		*supported;
+/**/	GHashTable		*state_reasons;	/* set, i.e. key==value */
 	GPtrArray		*jobs;
 	gboolean		 job_outgoing;
 
@@ -72,7 +72,6 @@ enum
 {
 	PROP_0,
 	PROP_DAEMON,
-	PROP_NAME,
 	PROP_DESCRIPTION,
 	PROP_LOCATION,
 	PROP_IEEE1284_ID,
@@ -118,7 +117,6 @@ pd_printer_impl_finalize (GObject *object)
 
 	g_debug ("[Printer %s] Finalize", printer->id);
 	/* note: we don't hold a reference to printer->daemon */
-	g_free (printer->name);
 	g_free (printer->description);
 	g_free (printer->location);
 	g_free (printer->ieee1284_id);
@@ -149,9 +147,6 @@ pd_printer_impl_get_property (GObject *object,
 	switch (prop_id) {
 	case PROP_DAEMON:
 		g_value_set_object (value, pd_printer_impl_get_daemon (printer));
-		break;
-	case PROP_NAME:
-		g_value_set_string (value, printer->name);
 		break;
 	case PROP_DESCRIPTION:
 		g_value_set_string (value, printer->description);
@@ -225,10 +220,6 @@ pd_printer_impl_set_property (GObject *object,
 		g_assert (printer->daemon == NULL);
 		/* we don't take a reference to the daemon */
 		printer->daemon = g_value_get_object (value);
-		break;
-	case PROP_NAME:
-		g_free (printer->name);
-		printer->name = g_value_dup_string (value);
 		break;
 	case PROP_DESCRIPTION:
 		g_free (printer->description);
@@ -365,19 +356,6 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							      G_PARAM_STATIC_STRINGS));
 
 	/**
-	 * PdPrinterImpl:name:
-	 *
-	 * The name for the queue.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_NAME,
-					 g_param_spec_string ("name",
-							      "Name",
-							      "The name for the queue",
-							      NULL,
-							      G_PARAM_READWRITE));
-
-	/**
 	 * PdPrinterImpl:description:
 	 *
 	 * The name for the queue.
@@ -474,11 +452,17 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 const gchar *
 pd_printer_impl_get_id (PdPrinterImpl *printer)
 {
+	GValue name = G_VALUE_INIT;
+
 	/* shortcut */
 	if (printer->id != NULL)
 		goto out;
 
-	printer->id = g_strdup (printer->name);
+	g_value_init (&name, G_TYPE_STRING);
+	g_object_get_property (G_OBJECT (printer),
+			       "name",
+			       &name);
+	printer->id = g_value_dup_string (&name);
 
 	/* ensure valid */
 	g_strcanon (printer->id,
