@@ -57,6 +57,7 @@ class MainWindow(GObject.GObject):
         self.mainwindow.add (treeview)
         self.mainwindow.show_all ()
         self.mainwindow.connect ("delete-event", Gtk.main_quit)
+        self.devices = dict()  # D-Bus path to store iter
         self.printers = dict() # D-Bus path to store iter
         self.jobs = dict()     # D-Bus path to store iter
 
@@ -68,7 +69,7 @@ class MainWindow(GObject.GObject):
         for obj in objects:
             ifaces = obj.get_interfaces ()
             for iface in ifaces:
-                if iface.get_info ().name == IFACE_PRINTER:
+                if iface.get_info ().name in [IFACE_DEVICE, IFACE_PRINTER]:
                     self.interface_added (manager, obj, iface)
 
         for obj in objects:
@@ -80,21 +81,27 @@ class MainWindow(GObject.GObject):
     def update_state (self, column, cell, model, iter, data):
         iface = model.get_value (iter, self.TVCOL_IFACE)
         name = iface.get_info ().name
-        state = {}
-        if name == IFACE_PRINTER:
-            state = { 3: "Idle",
-                      4: "Processing",
-                      5: "Stopped" }
+        unknown = "Unknown"
+        state_str = ""
+        if name == IFACE_DEVICE:
+            pass # no state property
+        elif name == IFACE_PRINTER:
+            statemap = { 3: "Idle",
+                         4: "Processing",
+                         5: "Stopped" }
+            state = iface.get_property ('state')
+            state_str = statemap.get (state, unknown)
         elif name == IFACE_JOB:
-            state = { 3: "Pending",
-                      4: "Held",
-                      5: "Processing",
-                      6: "Paused",
-                      7: "Canceled",
-                      8: "Aborted",
-                      9: "Completed" }
+            statemap = { 3: "Pending",
+                         4: "Held",
+                         5: "Processing",
+                         6: "Paused",
+                         7: "Canceled",
+                         8: "Aborted",
+                         9: "Completed" }
+            state = iface.get_property ('state')
+            state_str = statemap.get (state, unknown)
 
-        state_str = state.get (iface.get_property ('state'), "Unknown")
         cell.set_property ("text", state_str)
 
     def object_added (self, manager, obj):
@@ -108,10 +115,21 @@ class MainWindow(GObject.GObject):
     def interface_added (self, manager, obj, iface):
         print ("interface added: %s" % repr (iface))
         name = iface.get_info ().name
-        if name == IFACE_PRINTER:
+        if name == IFACE_DEVICE:
+            self.device_added (obj, iface)
+        elif name == IFACE_PRINTER:
             self.printer_added (obj, iface)
         elif name == IFACE_JOB:
             self.job_added (obj, iface)
+
+    def device_added (self, obj, iface):
+        path = obj.get_object_path ()
+        print ("Device at %s" % path)
+        iter = self.store.append (None)
+        self.devices[path] = iter
+        self.store.set (iter, self.TVCOL_NAME, "Device")
+        self.store.set (iter, self.TVCOL_PATH, path)
+        self.store.set (iter, self.TVCOL_IFACE, iface)
 
     def printer_added (self, obj, iface):
         path = obj.get_object_path ()
@@ -173,6 +191,8 @@ class MainWindow(GObject.GObject):
                 jobpath = self.store.get_value (jobiter, self.TVCOL_PATH)
                 del self.jobs[jobpath]
                 self.store.remove (jobiter)
+        elif path in self.devices:
+            iter = self.devices[path]
         else:
             print ("unknown path: %s" % path)
             return
