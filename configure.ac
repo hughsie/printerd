@@ -1,4 +1,7 @@
-AC_INIT([printerd],[0.0.1],[http://bugs.freedesktop.org/enter_bug.cgi?product=printerd],[printerd])
+AC_INIT([printerd],
+	[0.0.1],
+	[https://github.com/hughsie/printerd/issues],
+	[printerd])
 
 AM_INIT_AUTOMAKE([1.9 no-dist-gzip dist-xz tar-ustar])
 AC_CONFIG_MACRO_DIR([m4])
