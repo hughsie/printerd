@@ -78,7 +78,6 @@ struct _PdJobImpl
 	PdDaemon	*daemon;
 	gchar		*name;
 	GHashTable	*attributes;
-	GHashTable	*state_reasons;
 
 	gint		 document_fd;
 	gchar		*document_filename;
@@ -104,7 +103,6 @@ enum
 	PROP_DAEMON,
 	PROP_NAME,
 	PROP_ATTRIBUTES,
-	PROP_STATE_REASONS,
 };
 
 static void pd_job_iface_init (PdJobIface *iface);
@@ -168,7 +166,6 @@ pd_job_impl_finalize (GObject *object)
 		g_free (job->document_filename);
 	}
 	g_hash_table_unref (job->attributes);
-	g_hash_table_unref (job->state_reasons);
 
 	/* Shut down filter chain */
 	g_list_free_full (job->filterchain,
@@ -194,8 +191,6 @@ pd_job_impl_get_property (GObject *object,
 	GHashTableIter iter;
 	gchar *dkey;
 	GVariant *dvalue;
-	GList *state_reasons, *sr;
-	gchar **strv, **p;
 
 	switch (prop_id) {
 	case PROP_DAEMON:
@@ -215,18 +210,6 @@ pd_job_impl_get_property (GObject *object,
 
 		g_value_set_variant (value, g_variant_builder_end (&builder));
 		break;
-	case PROP_STATE_REASONS:
-		state_reasons = g_hash_table_get_keys (job->state_reasons);
-		strv = g_malloc0 (sizeof (gchar *) *
-				  (1 + g_list_length (state_reasons)));
-		for (p = strv, sr = g_list_first (state_reasons);
-		     sr;
-		     sr = g_list_next (sr))
-			*p++ = g_strdup (sr->data);
-
-		g_value_take_boxed (value, strv);
-		g_list_free (state_reasons);
-		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -243,8 +226,6 @@ pd_job_impl_set_property (GObject *object,
 	GVariantIter iter;
 	gchar *dkey;
 	GVariant *dvalue;
-	const gchar **state_reasons;
-	const gchar **state_reason;
 
 	switch (prop_id) {
 	case PROP_DAEMON:
@@ -261,16 +242,6 @@ pd_job_impl_set_property (GObject *object,
 		g_variant_iter_init (&iter, g_value_get_variant (value));
 		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
 			g_hash_table_insert (job->attributes, dkey, dvalue);
-		break;
-	case PROP_STATE_REASONS:
-		state_reasons = g_value_get_boxed (value);
-		g_hash_table_remove_all (job->state_reasons);
-		for (state_reason = state_reasons;
-		     *state_reason;
-		     state_reason++) {
-			gchar *r = g_strdup (*state_reason);
-			g_hash_table_insert (job->state_reasons, r, r);
-		}
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -307,13 +278,11 @@ pd_job_impl_init (PdJobImpl *job)
 						 g_free,
 						 (GDestroyNotify) g_variant_unref);
 
-	job->state_reasons = g_hash_table_new_full (g_str_hash,
-						    g_str_equal,
-						    g_free,
-						    NULL);
-	gchar *incoming = g_strdup ("job-incoming");
-	g_hash_table_insert (job->state_reasons, incoming, incoming);
 	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING_HELD);
+	gchar *incoming[] = { g_strdup ("job-incoming"), NULL };
+	pd_job_set_state_reasons (PD_JOB (job),
+				  (const gchar *const *) incoming);
+	g_free (incoming[0]);
 }
 
 static void
@@ -382,19 +351,6 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							       G_VARIANT_TYPE ("a{sv}"),
 							       NULL,
 							       G_PARAM_READWRITE));
-
-	/**
-	 * PdJobImpl:state-reasons:
-	 *
-	 * The job's state reasons.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_STATE_REASONS,
-					 g_param_spec_boxed ("state-reasons",
-							     "State reasons",
-							     "The job's state reasons",
-							     G_TYPE_STRV,
-							     G_PARAM_READWRITE));
 }
 
 /**
@@ -412,23 +368,85 @@ pd_job_impl_get_daemon (PdJobImpl *job)
 	return job->daemon;
 }
 
-static void
-pd_job_impl_log_state_reason (PdJobImpl *job,
-			      const gchar *reason,
-			      gchar add_or_remove)
+static gboolean
+state_reason_is_set (PdJobImpl *job,
+		     const gchar *reason)
 {
-	GList *keys = g_hash_table_get_keys (job->state_reasons);
-	GList *r;
-	GString *reasons = NULL;
+	GValue state_reasons = G_VALUE_INIT;
+	gchar **strv;
+	gchar **r;
+	g_value_init (&state_reasons, G_TYPE_STRV);
+	g_object_get_property (G_OBJECT (job),
+			       "state-reasons",
+			       &state_reasons);
+	strv = g_value_get_boxed (&state_reasons);
+	for (r = strv; *r != NULL; r++)
+		if (!strcmp (*r, reason))
+			return TRUE;
 
-	for (r = g_list_first (keys); r; r = g_list_next (r)) {
+	return FALSE;
+}
+
+static void
+pd_job_impl_set_state_reasons (PdJobImpl *job,
+			       const gchar *reason,
+			       gchar add_or_remove)
+{
+	GValue state_reasons = G_VALUE_INIT;
+	gchar **strv_old;
+	gchar **strv_new;
+	guint length;
+	gint i, j;
+
+	g_value_init (&state_reasons, G_TYPE_STRV);
+	g_object_get_property (G_OBJECT (job),
+			       "state-reasons",
+			       &state_reasons);
+	strv_old = g_value_get_boxed (&state_reasons);
+	length = g_strv_length (strv_old);
+	strv_new = g_malloc0_n (2 + length, sizeof (gchar *));
+	for (i = 0, j = 0; strv_old[i] != NULL; i++) {
+		if (!strcmp (strv_old[i], reason)) {
+			/* Found the state reason */
+			if (add_or_remove == '+')
+				/* Add: nothing to do */
+				break;
+
+			/* Remove: skip it */
+			continue;
+		}
+
+		strv_new[j++] = g_strdup (strv_old[i]);
+	}
+
+	if ((add_or_remove == '+' && strv_old[i] != NULL) ||
+	    (add_or_remove == '-' && i == j))
+		/* Nothing to do. */
+		goto out;
+
+	if (add_or_remove == '+')
+		strv_new[j++] = g_strdup (reason);
+
+	g_value_set_boxed (&state_reasons, strv_new);
+	g_object_set_property (G_OBJECT (job),
+			       "state-reasons",
+			       &state_reasons);
+out:
+	g_strfreev (strv_new);
+
+	g_object_get_property (G_OBJECT (job),
+			       "state-reasons",
+			       &state_reasons);
+	strv_new = g_value_get_boxed (&state_reasons);
+
+	GString *reasons = NULL;
+	gchar **r;
+	for (r = strv_new; *r != NULL; r++) {
 		if (reasons == NULL) {
 			reasons = g_string_new ("[");
-			g_string_append (reasons, r->data);
+			g_string_append (reasons, *r);
 		} else
-			g_string_append_printf (reasons,
-						",%s",
-						(gchar *) r->data);
+			g_string_append_printf (reasons, ",%s", *r);
 	}
 
 	if (reasons)
@@ -440,7 +458,6 @@ pd_job_impl_log_state_reason (PdJobImpl *job,
 		 reason,
 		 reasons ? reasons->str : "[none]");
 
-	g_list_free (keys);
 	if (reasons)
 		g_string_free (reasons, TRUE);
 }
@@ -449,21 +466,14 @@ static void
 pd_job_impl_add_state_reason (PdJobImpl *job,
 			      const gchar *reason)
 {
-	gchar *r = g_strdup (reason);
-	g_hash_table_insert (job->state_reasons, r, r);
-	g_object_notify (G_OBJECT (job), "state-reasons");
-	pd_job_impl_log_state_reason (job, reason, '+');
+	pd_job_impl_set_state_reasons (job, reason, '+');
 }
 
 static void
 pd_job_impl_remove_state_reason (PdJobImpl *job,
 				 const gchar *reason)
 {
-	if (g_hash_table_lookup (job->state_reasons, reason)) {
-		g_hash_table_remove (job->state_reasons, reason);
-		g_object_notify (G_OBJECT (job), "state-reasons");
-		pd_job_impl_log_state_reason (job, reason, '-');
-	}
+	pd_job_impl_set_state_reasons (job, reason, '-');
 }
 
 static gboolean
@@ -1532,8 +1542,7 @@ pd_job_impl_cancel (PdJob *_job,
 			goto done;
 		}
 
-		if (g_hash_table_lookup (job->state_reasons,
-					 "processing-to-stop-point")) {
+		if (state_reason_is_set (job, "processing-to-stop-point")) {
 			g_dbus_method_invocation_return_error (invocation,
 							       PD_ERROR,
 							       PD_ERROR_FAILED,

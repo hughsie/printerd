@@ -456,6 +456,7 @@ pd_engine_job_state_reasons_notify	(PdJob *job)
 	g_object_get_property (G_OBJECT (job),
 			       "state-reasons",
 			       &state_reasons);
+	g_debug ("[Engine] Job %u changed state reasons", job_id);
 	strv = g_value_get_boxed (&state_reasons);
 	for (i = 0; strv[i] != NULL; i++)
 		if (!strcmp (strv[i], "job-outgoing"))
