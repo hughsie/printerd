@@ -116,6 +116,9 @@ static void pd_job_impl_add_state_reason (PdJobImpl *job,
 static void pd_job_impl_remove_state_reason (PdJobImpl *job,
 					     const gchar *reason);
 static void pd_job_impl_job_state_notify (PdJobImpl *job);
+static void pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
+					       gint job_state,
+					       const gchar *reason);
 static gboolean pd_job_impl_message_io_cb (GIOChannel *channel,
 					   GIOCondition condition,
 					   gpointer data);
@@ -593,6 +596,11 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 				   thisjp->what,
 				   error->message);
 			g_error_free (error);
+			pd_job_impl_do_cancel_with_reason (job,
+							   PD_JOB_STATE_ABORTED,
+							   "job-aborted-by-system");
+			g_io_channel_unref (channel);
+			keep_source = FALSE;
 			break;
 
 		case G_IO_STATUS_AGAIN:
@@ -650,9 +658,15 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 			g_warning ("[Job %u] Error writing to %s: %s",
 				   job_id, thisjp->what, error->message);
 			g_error_free (error);
+			pd_job_impl_do_cancel_with_reason (job,
+							   PD_JOB_STATE_ABORTED,
+							   "job-aborted-by-system");
 			goto out;
 		case G_IO_STATUS_EOF:
 			g_debug ("[Job %u] EOF on write?", job_id);
+			pd_job_impl_do_cancel_with_reason (job,
+							   PD_JOB_STATE_ABORTED,
+							   "job-canceled-by-system");
 			break;
 		case G_IO_STATUS_AGAIN:
 			g_debug ("[Job %u] Resource temporarily unavailable",
@@ -699,9 +713,16 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 	GIOStatus status;
 	gchar *line = NULL;
 	gsize got;
-	gint i;
+	gint thisfd;
 
 	g_assert (condition & (G_IO_IN | G_IO_HUP));
+
+	if (channel == jp->channel[STDERR_FILENO])
+		thisfd = STDERR_FILENO;
+	else {
+		g_assert (channel == jp->channel[STDOUT_FILENO]);
+		thisfd = STDOUT_FILENO;
+	}
 
 	while ((status = g_io_channel_read_line (channel,
 						 &line,
@@ -709,19 +730,16 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 						 NULL,
 						 &error)) ==
 	       G_IO_STATUS_NORMAL) {
-		if (channel == jp->channel[STDERR_FILENO]) {
+		if (thisfd == STDERR_FILENO) {
 			g_debug ("[Job %u] %s: %s",
 				 job_id, jp->what,
 				 g_strchomp (line));
 			pd_job_impl_parse_stderr (job, line);
 		}
-		else {
-			g_assert (channel == jp->channel[STDOUT_FILENO] &&
-				  jp == &job->backend);
+		else
 			g_debug ("[Job %u] backend(stdout): %s",
 				 job_id,
 				 g_strchomp (line));
-		}
 	}
 
 	switch (status) {
@@ -729,18 +747,15 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 		g_warning ("[Job %u] Error reading from channel: %s",
 			   job_id, error->message);
 		g_error_free (error);
+		g_io_channel_unref (channel);
+		keep_source = FALSE;
+		pd_job_impl_add_state_reason (job, "job-canceled-by-system");
+		pd_job_set_state (PD_JOB (job), PD_JOB_STATE_CANCELED);
 		goto out;
 	case G_IO_STATUS_EOF:
 		g_io_channel_unref (channel);
-		for (i = 0; i < PD_FD_MAX; i++)
-			if (channel == jp->channel[i])
-				break;
-
-		g_assert (i < PD_FD_MAX);
 		g_debug ("[Job %u] %s fd %d closed",
-			 job_id, jp->what, i);
-		jp->channel[i] = NULL;
-		jp->io_source[i] = 0;
+			 job_id, jp->what, thisfd);
 		keep_source = FALSE;
 		break;
 	case G_IO_STATUS_AGAIN:
@@ -749,6 +764,11 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 	case G_IO_STATUS_NORMAL:
 		g_assert_not_reached ();
 		break;
+	}
+
+	if (!keep_source) {
+		jp->channel[thisfd] = NULL;
+		jp->io_source[thisfd] = 0;
 	}
 
  out:
@@ -1454,47 +1474,17 @@ pd_job_impl_start (PdJob *_job,
 	return TRUE; /* handled the method invocation */
 }
 
-/* runs in thread dedicated to handling @invocation */
-static gboolean
-pd_job_impl_cancel (PdJob *_job,
-		    GDBusMethodInvocation *invocation,
-		    GVariant *options)
+/* Cancel or abort job */
+static void
+pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
+				   gint job_state,
+				   const gchar *reason)
 {
-	PdJobImpl *job = PD_JOB_IMPL (_job);
-	guint job_id = pd_job_get_id (PD_JOB (job));
-	GVariant *attr_user;
-	gchar *requesting_user = NULL;
-	const gchar *originating_user = NULL;
+	PdJob *_job = PD_JOB (job);
+	guint job_id = pd_job_get_id (_job);
 	GList *filter;
 
-	/* Check if the user is authorized to cancel this job */
-	if (!pd_daemon_check_authorization_sync (job->daemon,
-						 "org.freedesktop.printerd.job-cancel",
-						 options,
-						 N_("Authentication is required to cancel a job"),
-						 invocation))
-		goto out;
-
-	/* Check if this user owns the job */
-	attr_user = get_attribute_value (PD_JOB (job),
-					 "job-originating-user-name");
-	if (attr_user) {
-		originating_user = g_variant_get_string (attr_user, NULL);
-		g_variant_unref (attr_user);
-	}
-	requesting_user = pd_get_unix_user (invocation);
-	if (g_strcmp0 (originating_user, requesting_user)) {
-		g_debug ("[Job %u] AddDocument: denied "
-			 "[originating user: %s; requesting user: %s]",
-			 job_id, originating_user, requesting_user);
-		g_dbus_method_invocation_return_error (invocation,
-						       PD_ERROR,
-						       PD_ERROR_FAILED,
-						       N_("Not job owner"));
-		goto out;
-	}
-
-	pd_job_impl_add_state_reason (job, "job-canceled-by-user");
+	pd_job_impl_add_state_reason (PD_JOB_IMPL (job), reason);
 
         /* RFC 2911, 3.3.3: only these jobs in these states can be
 	   canceled */
@@ -1504,12 +1494,11 @@ pd_job_impl_cancel (PdJob *_job,
 		/* These can be canceled right away. */
 
 		/* Change job state. */
-		g_debug ("[Job %u] Canceled", job_id);
-		pd_job_set_state (_job, PD_JOB_STATE_CANCELED);
+		g_debug ("[Job %u] Pending job set to state %s",
+			 job_id, pd_job_state_as_string (job_state));
+		pd_job_set_state (_job, job_state);
 
-		/* Return success */
-		g_dbus_method_invocation_return_value (invocation,
-						       g_variant_new ("()"));
+		/* Nothing else to do */
 		break;
 
 	case PD_JOB_STATE_PROCESSING:
@@ -1520,21 +1509,16 @@ pd_job_impl_cancel (PdJob *_job,
 		if (!pd_job_impl_check_job_transforming (job) &&
 		    !job->backend.started) {
 			/* Already finished */
-			g_debug ("[Job %u] Canceled after transformation",
+			g_debug ("[Job %u] Stopped after transformation",
 				 job_id);
-			pd_job_set_state (_job, PD_JOB_STATE_CANCELED);
-			goto done;
+			pd_job_set_state (_job, job_state);
+			break;
 		}
 
-		if (state_reason_is_set (job, "processing-to-stop-point")) {
-			g_dbus_method_invocation_return_error (invocation,
-							       PD_ERROR,
-							       PD_ERROR_FAILED,
-							       N_("Already canceled"));
-			goto out;
-		}
+		if (state_reason_is_set (job, "processing-to-stop-point"))
+			break;
 
-		job->pending_job_state = PD_JOB_STATE_CANCELED;
+		job->pending_job_state = job_state;
 		pd_job_impl_add_state_reason (job, "processing-to-stop-point");
 
 		if (job->backend.channel[STDIN_FILENO] != NULL) {
@@ -1578,7 +1562,83 @@ pd_job_impl_cancel (PdJob *_job,
 			g_spawn_close_pid (job->backend.pid);
 		}
 
-	done:
+		break;
+
+	default: /* only completed job states remaining */
+		break;
+		;
+	}
+}
+
+/* runs in thread dedicated to handling @invocation */
+static gboolean
+pd_job_impl_cancel (PdJob *_job,
+		    GDBusMethodInvocation *invocation,
+		    GVariant *options)
+{
+	PdJobImpl *job = PD_JOB_IMPL (_job);
+	guint job_id = pd_job_get_id (PD_JOB (job));
+	GVariant *attr_user;
+	gchar *requesting_user = NULL;
+	const gchar *originating_user = NULL;
+
+	/* Check if the user is authorized to cancel this job */
+	if (!pd_daemon_check_authorization_sync (job->daemon,
+						 "org.freedesktop.printerd.job-cancel",
+						 options,
+						 N_("Authentication is required to cancel a job"),
+						 invocation))
+		goto out;
+
+	/* Check if this user owns the job */
+	attr_user = get_attribute_value (PD_JOB (job),
+					 "job-originating-user-name");
+	if (attr_user) {
+		originating_user = g_variant_get_string (attr_user, NULL);
+		g_variant_unref (attr_user);
+	}
+	requesting_user = pd_get_unix_user (invocation);
+	if (g_strcmp0 (originating_user, requesting_user)) {
+		g_debug ("[Job %u] AddDocument: denied "
+			 "[originating user: %s; requesting user: %s]",
+			 job_id, originating_user, requesting_user);
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Not job owner"));
+		goto out;
+	}
+
+	switch (pd_job_get_state (_job)) {
+	case PD_JOB_STATE_PENDING:
+	case PD_JOB_STATE_PENDING_HELD:
+		/* These can be canceled right away. */
+		g_debug ("[Job %u] Canceled by user", job_id);
+		goto cancel;
+		break;
+
+	case PD_JOB_STATE_PROCESSING:
+	case PD_JOB_STATE_PROCESSING_STOPPED:
+		/* These need some time to tell the printer to
+		   e.g. eject the current page */
+
+		if (!pd_job_impl_check_job_transforming (job) &&
+		    !job->backend.started)
+			goto cancel;
+
+		if (state_reason_is_set (job, "processing-to-stop-point")) {
+			g_dbus_method_invocation_return_error (invocation,
+							       PD_ERROR,
+							       PD_ERROR_FAILED,
+							       N_("Already canceled"));
+			break;
+		}
+
+	cancel:
+		/* Now cancel the job. */
+		pd_job_impl_do_cancel_with_reason (job,
+						   PD_JOB_STATE_CANCELED,
+						   "job-canceled-by-user");
 		g_dbus_method_invocation_return_value (invocation,
 						       g_variant_new ("()"));
 		break;
