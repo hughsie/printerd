@@ -962,6 +962,12 @@ pd_job_impl_run_process (PdJobImpl *job,
 					NULL);
 		g_io_channel_set_close_on_unref (channel,
 						 TRUE);
+
+		/* Set the data channels up for binary data. */
+		if ((jp == &job->backend && i < 1) ||
+		    (jp != &job->backend && i < 2))
+			g_io_channel_set_encoding (channel, NULL, NULL);
+
 		jp->channel[i] = channel;
 	}
 
