@@ -51,7 +51,6 @@ struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
 	PdDaemon		*daemon;
-/**/	GHashTable		*supported;
 /**/	GHashTable		*state_reasons;	/* set, i.e. key==value */
 	GPtrArray		*jobs;
 	gboolean		 job_outgoing;
@@ -68,7 +67,6 @@ enum
 {
 	PROP_0,
 	PROP_DAEMON,
-	PROP_SUPPORTED,
 	PROP_STATE_REASONS,
 	PROP_JOB_OUTGOING,
 };
@@ -109,7 +107,6 @@ pd_printer_impl_finalize (GObject *object)
 
 	g_debug ("[Printer %s] Finalize", printer->id);
 	/* note: we don't hold a reference to printer->daemon */
-	g_hash_table_unref (printer->supported);
 	g_hash_table_unref (printer->state_reasons);
 	g_ptr_array_foreach (printer->jobs,
 			     pd_printer_impl_remove_job,
@@ -125,28 +122,12 @@ pd_printer_impl_get_property (GObject *object,
 			      GParamSpec *pspec)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
-	GVariantBuilder builder;
-	GHashTableIter iter;
-	gchar *dkey;
-	GVariant *dvalue;
 	GList *state_reasons, *sr;
 	gchar **strv, **p;
 
 	switch (prop_id) {
 	case PROP_DAEMON:
 		g_value_set_object (value, pd_printer_impl_get_daemon (printer));
-		break;
-	case PROP_SUPPORTED:
-		g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
-		g_hash_table_iter_init (&iter, printer->supported);
-		while (g_hash_table_iter_next (&iter,
-					       (gpointer *) &dkey,
-					       (gpointer *) &dvalue))
-			g_variant_builder_add (&builder, "{sv}",
-					       g_strdup (dkey),
-					       g_variant_ref (dvalue));
-
-		g_value_set_variant (value, g_variant_builder_end (&builder));
 		break;
 	case PROP_STATE_REASONS:
 		state_reasons = g_hash_table_get_keys (printer->state_reasons);
@@ -176,9 +157,6 @@ pd_printer_impl_set_property (GObject *object,
 			      GParamSpec *pspec)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
-	GVariantIter iter;
-	gchar *dkey;
-	GVariant *dvalue;
 	const gchar **state_reasons;
 	const gchar **state_reason;
 
@@ -187,14 +165,6 @@ pd_printer_impl_set_property (GObject *object,
 		g_assert (printer->daemon == NULL);
 		/* we don't take a reference to the daemon */
 		printer->daemon = g_value_get_object (value);
-		break;
-	case PROP_SUPPORTED:
-		g_hash_table_remove_all (printer->supported);
-		g_variant_iter_init (&iter, g_value_get_variant (value));
-		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-			g_hash_table_insert (printer->supported,
-					     g_strdup (dkey),
-					     g_variant_ref (dvalue));
 		break;
 	case PROP_STATE_REASONS:
 		state_reasons = g_value_get_boxed (value);
@@ -219,7 +189,8 @@ static void
 pd_printer_impl_init (PdPrinterImpl *printer)
 {
 	GVariantBuilder builder;
-	GValue defaults = G_VALUE_INIT;
+	GVariantBuilder val_builder;
+	GValue value = G_VALUE_INIT;
 
 	g_dbus_interface_skeleton_set_flags (G_DBUS_INTERFACE_SKELETON (printer),
 					     G_DBUS_INTERFACE_SKELETON_FLAGS_HANDLE_METHOD_INVOCATIONS_IN_THREAD);
@@ -240,32 +211,34 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 			       g_variant_ref_sink (g_variant_new ("s",
 								  "application-pdf")));
 
-	g_value_init (&defaults, G_TYPE_VARIANT);
-	g_value_set_variant (&defaults, g_variant_builder_end (&builder));
+	g_value_init (&value, G_TYPE_VARIANT);
+	g_value_set_variant (&value, g_variant_builder_end (&builder));
 	g_object_set_property (G_OBJECT (printer),
 			       "defaults",
-			       &defaults);
+			       &value);
 
 	/* Supported values */
 
-	printer->supported = g_hash_table_new_full (g_str_hash,
-						    g_str_equal,
-						    g_free,
-						    (GDestroyNotify) g_variant_unref);
+	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
 
 	/* set initial job template supported attributes */
-	g_variant_builder_init (&builder, G_VARIANT_TYPE ("as"));
-	g_variant_builder_add (&builder, "s", "iso-a4");
-	g_variant_builder_add (&builder, "s", "na-letter");
-	g_hash_table_insert (printer->supported,
-			     g_strdup ("media"),
-			     g_variant_builder_end (&builder));
+	g_variant_builder_init (&val_builder, G_VARIANT_TYPE ("as"));
+	g_variant_builder_add (&val_builder, "s", "iso-a4");
+	g_variant_builder_add (&val_builder, "s", "na-letter");
+	g_variant_builder_add (&builder, "{sv}",
+			       g_strdup ("media"),
+			       g_variant_builder_end (&val_builder));
 
-	g_variant_builder_init (&builder, G_VARIANT_TYPE ("as"));
-	g_variant_builder_add (&builder, "s", "application/pdf");
-	g_hash_table_insert (printer->supported,
-			     g_strdup ("document-format"),
-			     g_variant_builder_end (&builder));
+	g_variant_builder_init (&val_builder, G_VARIANT_TYPE ("as"));
+	g_variant_builder_add (&val_builder, "s", "application/pdf");
+	g_variant_builder_add (&builder, "{sv}",
+			       g_strdup ("document-format"),
+			       g_variant_builder_end (&val_builder));
+
+	g_value_set_variant (&value, g_variant_builder_end (&builder));
+	g_object_set_property (G_OBJECT (printer),
+			       "supported",
+			       &value);
 
 	/* State reasons */
 	printer->state_reasons = g_hash_table_new_full (g_str_hash,
@@ -306,20 +279,6 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							      G_PARAM_WRITABLE |
 							      G_PARAM_CONSTRUCT_ONLY |
 							      G_PARAM_STATIC_STRINGS));
-
-	/**
-	 * PdPrinterImpl:supported:
-	 *
-	 * The queue's supported attributes.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_SUPPORTED,
-					 g_param_spec_variant ("supported",
-							       "Supported attributes",
-							       "Supported values for attributes",
-							       G_VARIANT_TYPE ("a{sv}"),
-							       NULL,
-							       G_PARAM_READWRITE));
 
 	/**
 	 * PdPrinterImpl:state-reasons:
@@ -551,22 +510,22 @@ attribute_value_is_supported (PdPrinterImpl *printer,
 	gboolean ret = FALSE;
 	GVariant *supported_values;
 	GVariantIter iter_supported;
+	GValue supported = G_VALUE_INIT;
 	gchar *supported_val;
 	const gchar *provided_val;
 	gboolean found;
 
 	/* Is this an attribute for which there are restrictions? */
-	supported_values = g_hash_table_lookup (printer->supported,
-						key);
+	g_value_init (&supported, G_TYPE_VARIANT);
+	g_object_get_property (G_OBJECT (printer),
+			       "supported",
+			       &supported);
+	g_value_get_variant (&supported);
+	supported_values = g_variant_lookup_value (g_value_get_variant (&supported),
+						   key,
+						   G_VARIANT_TYPE ("s"));
 	if (!supported_values) {
 		ret = TRUE;
-		goto out;
-	}
-
-	/* Type check. We only have string-valued defaults so far. */
-	if (!g_variant_is_of_type (value, G_VARIANT_TYPE ("s"))) {
-		g_debug ("[Printer %s] Bad variant type for %s",
-			 printer->id, key);
 		goto out;
 	}
 
