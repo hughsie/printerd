@@ -980,7 +980,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	/* Set up the arranger */
 	jp = g_malloc0 (sizeof (struct _PdJobProcess));
 	pd_job_impl_init_jp (job, jp);
-	jp->cmd = g_strdup ("/usr/lib/cups/filter/pstops");
+	jp->cmd = g_strdup ("/usr/lib/cups/filter/pdftopdf");
 	jp->what = "arranger";
 
 	/* Set up a pipe to read the backend's stdout */
