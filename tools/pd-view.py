@@ -122,6 +122,7 @@ class MainWindow(GObject.GObject):
                        self.printer_state_reasons_changed)
 
         self.set_printer_state (printeriter, iface)
+        self.set_printer_state_reasons (printeriter, iface)
 
     def get_printer_path_from_iface (self, iface):
         obj = iface.get_object ()
