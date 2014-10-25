@@ -854,7 +854,12 @@ pd_job_impl_run_process (PdJobImpl *job,
 	gboolean ret = FALSE;
 	guint job_id = pd_job_get_id (PD_JOB (job));
 	gchar *username;
+	GString *options = NULL;
+	GVariant *attributes;
 	GVariant *variant;
+	GVariantIter iter;
+	gchar *dkey;
+	GVariant *dvalue;
 	const gchar *uri;
 	char **argv = NULL;
 	char **envp = NULL;
@@ -871,6 +876,28 @@ pd_job_impl_run_process (PdJobImpl *job,
 	} else
 		username = g_strdup ("unknown");
 
+	attributes = pd_job_get_attributes (PD_JOB (job));
+	g_variant_iter_init (&iter, attributes);
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue)) {
+		gchar *val;
+
+		if (g_variant_is_of_type (dvalue, G_VARIANT_TYPE_STRING))
+			val = g_variant_dup_string (dvalue, NULL);
+		else
+			val = g_variant_print (dvalue, FALSE);
+
+		if (options == NULL) {
+			options = g_string_new ("");
+			g_string_printf (options, "%s=%s", dkey, val);
+		} else
+			g_string_append_printf (options, " %s=%s", dkey, val);
+
+		g_free (val);
+	}
+
+	if (options == NULL)
+		options = g_string_new ("");
+
 	argv = g_malloc0 (sizeof (char *) * 8);
 	argv[0] = g_strdup (jp->cmd);
 	/* URI */
@@ -884,7 +911,8 @@ pd_job_impl_run_process (PdJobImpl *job,
 	/* Copies */
 	argv[5] = g_strdup ("1");
 	/* Options */
-	argv[6] = g_strdup ("");
+	argv[6] = options->str;
+	g_string_free (options, FALSE);
 	argv[7] = NULL;
 
 	envp = g_malloc0 (sizeof (char *) * 2);
