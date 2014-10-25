@@ -411,9 +411,9 @@ pd_job_impl_check_job_transforming (PdJobImpl *job)
 		    !jp->finished) {
 			/* There is still a filter chain
 			   process running. */
-			g_debug ("[Job %u] PID %u still running",
+			g_debug ("[Job %u] PID %u (%s) still running",
 				 pd_job_get_id (PD_JOB (job)),
-				 jp->pid);
+				 jp->pid, jp->what);
 			break;
 		}
 	}
@@ -438,8 +438,8 @@ pd_job_impl_process_watch_cb (GPid pid,
 	g_spawn_close_pid (pid);
 	jp->finished = TRUE;
 	jp->process_watch_source = 0;
-	g_debug ("[Job %u] PID %d finished with status %d",
-		 job_id, pid, WEXITSTATUS (status));
+	g_debug ("[Job %u] PID %d (%s) finished with status %d",
+		 job_id, pid, jp->what, WEXITSTATUS (status));
 
 	/* Close its input file descriptors */
 	if (jp->io_source[STDIN_FILENO]) {
