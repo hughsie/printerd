@@ -51,7 +51,6 @@ struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
 	PdDaemon		*daemon;
-/**/	GHashTable		*defaults;
 /**/	GHashTable		*supported;
 /**/	GHashTable		*state_reasons;	/* set, i.e. key==value */
 	GPtrArray		*jobs;
@@ -69,7 +68,6 @@ enum
 {
 	PROP_0,
 	PROP_DAEMON,
-	PROP_DEFAULTS,
 	PROP_SUPPORTED,
 	PROP_STATE_REASONS,
 	PROP_JOB_OUTGOING,
@@ -111,7 +109,6 @@ pd_printer_impl_finalize (GObject *object)
 
 	g_debug ("[Printer %s] Finalize", printer->id);
 	/* note: we don't hold a reference to printer->daemon */
-	g_hash_table_unref (printer->defaults);
 	g_hash_table_unref (printer->supported);
 	g_hash_table_unref (printer->state_reasons);
 	g_ptr_array_foreach (printer->jobs,
@@ -138,18 +135,6 @@ pd_printer_impl_get_property (GObject *object,
 	switch (prop_id) {
 	case PROP_DAEMON:
 		g_value_set_object (value, pd_printer_impl_get_daemon (printer));
-		break;
-	case PROP_DEFAULTS:
-		g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
-		g_hash_table_iter_init (&iter, printer->defaults);
-		while (g_hash_table_iter_next (&iter,
-					       (gpointer *) &dkey,
-					       (gpointer *) &dvalue))
-			g_variant_builder_add (&builder, "{sv}",
-					       g_strdup (dkey),
-					       g_variant_ref (dvalue));
-
-		g_value_set_variant (value, g_variant_builder_end (&builder));
 		break;
 	case PROP_SUPPORTED:
 		g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
@@ -203,14 +188,6 @@ pd_printer_impl_set_property (GObject *object,
 		/* we don't take a reference to the daemon */
 		printer->daemon = g_value_get_object (value);
 		break;
-	case PROP_DEFAULTS:
-		g_hash_table_remove_all (printer->defaults);
-		g_variant_iter_init (&iter, g_value_get_variant (value));
-		while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-			g_hash_table_insert (printer->defaults,
-					     g_strdup (dkey),
-					     g_variant_ref (dvalue));
-		break;
 	case PROP_SUPPORTED:
 		g_hash_table_remove_all (printer->supported);
 		g_variant_iter_init (&iter, g_value_get_variant (value));
@@ -242,27 +219,32 @@ static void
 pd_printer_impl_init (PdPrinterImpl *printer)
 {
 	GVariantBuilder builder;
+	GValue defaults = G_VALUE_INIT;
 
 	g_dbus_interface_skeleton_set_flags (G_DBUS_INTERFACE_SKELETON (printer),
 					     G_DBUS_INTERFACE_SKELETON_FLAGS_HANDLE_METHOD_INVOCATIONS_IN_THREAD);
 
 	/* Defaults */
 
-	printer->defaults = g_hash_table_new_full (g_str_hash,
-						   g_str_equal,
-						   g_free,
-						   (GDestroyNotify) g_variant_unref);
+	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
 
 	/* set initial job template attributes */
-	g_hash_table_insert (printer->defaults,
-			     g_strdup ("media"),
-			     g_variant_ref_sink (g_variant_new ("s",
-								"iso-a4")));
+	g_variant_builder_add (&builder, "{sv}",
+			       g_strdup ("media"),
+			       g_variant_ref_sink (g_variant_new ("s",
+								  "iso-a4")));
+
 	/* set initial printer description attributes */
-	g_hash_table_insert (printer->defaults,
-			     g_strdup ("document-format"),
-			     g_variant_ref_sink (g_variant_new ("s",
-								"application-pdf")));
+	g_variant_builder_add (&builder, "{sv}",
+			       g_strdup ("document-format"),
+			       g_variant_ref_sink (g_variant_new ("s",
+								  "application-pdf")));
+
+	g_value_init (&defaults, G_TYPE_VARIANT);
+	g_value_set_variant (&defaults, g_variant_builder_end (&builder));
+	g_object_set_property (G_OBJECT (printer),
+			       "defaults",
+			       &defaults);
 
 	/* Supported values */
 
@@ -324,20 +306,6 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							      G_PARAM_WRITABLE |
 							      G_PARAM_CONSTRUCT_ONLY |
 							      G_PARAM_STATIC_STRINGS));
-
-	/**
-	 * PdPrinterImpl:defaults:
-	 *
-	 * The queue's default attributes.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_DEFAULTS,
-					 g_param_spec_variant ("defaults",
-							       "Defaults",
-							       "The job template and printer description attributes",
-							       G_VARIANT_TYPE ("a{sv}"),
-							       NULL,
-							       G_PARAM_READWRITE));
 
 	/**
 	 * PdPrinterImpl:supported:
@@ -431,13 +399,44 @@ pd_printer_impl_get_daemon (PdPrinterImpl *printer)
 	return printer->daemon;
 }
 
+static GVariant *
+update_attributes (GVariant *attributes, GVariant *updates)
+{
+	GVariantBuilder builder;
+	GVariantIter iter;
+	gchar *dkey;
+	GVariant *dvalue;
+
+	/* Add any values from attributes that are not in updates */
+	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
+	g_variant_iter_init (&iter, attributes);
+	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue)) {
+		if (!g_variant_lookup_value (updates, dkey, NULL))
+			g_variant_builder_add (&builder, "{sv}",
+					       g_strdup (dkey),
+					       g_variant_ref (dvalue));
+	}
+
+	/* Now add in the updates */
+	g_variant_iter_init (&iter, updates);
+	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
+		g_variant_builder_add (&builder, "{sv}",
+				       g_strdup (dkey),
+				       g_variant_ref (dvalue));
+
+	return g_variant_builder_end (&builder);
+}
+
 void
 pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 				 GVariant *defaults)
 {
 	GVariantIter iter;
+	GValue defaults_val = G_VALUE_INIT;
 	gchar *key;
 	GVariant *value;
+
+	g_debug ("[Printer %s] Updating defaults", printer->id);
 
 	/* add/overwrite default values, keeping other existing values */
 	g_variant_iter_init (&iter, defaults);
@@ -446,10 +445,19 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 		g_debug ("[Printer %s] Defaults: set %s=%s",
 			 printer->id, key, val);
 		g_free (val);
-		g_hash_table_replace (printer->defaults,
-				      g_strdup (key),
-				      g_variant_ref (value));
 	}
+
+	g_value_init (&defaults_val, G_TYPE_VARIANT);
+	g_object_get_property (G_OBJECT (printer),
+			       "defaults",
+			       &defaults_val);
+	value = update_attributes (g_value_get_variant (&defaults_val),
+				   defaults);
+	g_value_set_variant (&defaults_val,
+			     g_variant_ref_sink (value));
+	g_object_set_property (G_OBJECT (printer),
+			       "defaults",
+			       &defaults_val);
 }
 
 /**
@@ -637,52 +645,46 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	PdJob *job;
 	gchar *object_path = NULL;
 	gchar *printer_path = NULL;
-	GVariantBuilder builder;
+	GValue defaults = G_VALUE_INIT;
 	GVariantBuilder unsupported;
-	GHashTableIter iter_attr;
-	GVariantIter iter_supplied;
+	GVariantIter iter;
 	gchar *dkey;
 	GVariant *dvalue;
+	GVariant *job_attributes;
 	gchar *user = NULL;
 
 	g_debug ("[Printer %s] Creating job", printer->id);
 
 	/* set attributes from job template attributes */
-	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
-	g_hash_table_iter_init (&iter_attr, printer->defaults);
-	while (g_hash_table_iter_next (&iter_attr,
-				       (gpointer *) &dkey,
-				       (gpointer *) &dvalue)) {
-		if (!g_variant_lookup_value (attributes, dkey, NULL))
-			g_variant_builder_add (&builder, "{sv}",
-					       g_strdup (dkey),
-					       g_variant_ref (dvalue));
-	}
+	g_value_init (&defaults, G_TYPE_VARIANT);
+	g_object_get_property (G_OBJECT (printer),
+			       "defaults",
+			       &defaults);
 
-	/* now update the attributes from the supplied ones */
-	g_variant_iter_init (&iter_supplied, attributes);
-	while (g_variant_iter_next (&iter_supplied, "{sv}", &dkey, &dvalue)) {
+	/* Check for unsupported attributes */
+	g_variant_builder_init (&unsupported, G_VARIANT_TYPE ("a{sv}"));
+	g_variant_iter_init (&iter, attributes);
+	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
 		/* Is there a list of supported values? */
 		if (!attribute_value_is_supported (printer, dkey, dvalue)) {
-			g_dbus_method_invocation_return_error (invocation,
-							       PD_ERROR,
-							       PD_ERROR_FAILED,
-							       "Unsupported value");
-			goto out;
+			gchar *val = g_variant_print (dvalue, TRUE);
+			g_debug ("[Printer %s] Unsupported attribute %s=%s",
+				 printer->id, dkey, val);
+			g_free (val);
+			g_variant_builder_add (&unsupported, "{sv}",
+					       g_strdup (dkey),
+					       g_variant_ref (dvalue));
 		}
-
-		g_variant_builder_add (&builder, "{sv}",
-				       g_strdup (dkey),
-				       g_variant_ref (dvalue));
-	}
 
 	/* Tell the engine to create the job */
 	printer_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
 					printer->id);
+	job_attributes = update_attributes (g_value_get_variant (&defaults),
+					    attributes);
 	job = pd_engine_add_job (pd_daemon_get_engine (printer->daemon),
 				 printer_path,
 				 name,
-				 g_variant_builder_end (&builder));
+				 g_variant_ref_sink (job_attributes));
 
 	/* Store the job in our array */
 	g_ptr_array_add (printer->jobs, (gpointer) job);
@@ -710,7 +712,6 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 							      object_path,
 							      g_variant_builder_end (&unsupported)));
 
- out:
 	g_free (user);
 	g_free (object_path);
 	g_free (printer_path);
