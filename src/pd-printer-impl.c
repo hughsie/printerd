@@ -51,7 +51,6 @@ struct _PdPrinterImpl
 {
 	PdPrinterSkeleton	 parent_instance;
 	PdDaemon		*daemon;
-/**/	GHashTable		*state_reasons;	/* set, i.e. key==value */
 	GPtrArray		*jobs;
 	gboolean		 job_outgoing;
 
@@ -67,7 +66,6 @@ enum
 {
 	PROP_0,
 	PROP_DAEMON,
-	PROP_STATE_REASONS,
 	PROP_JOB_OUTGOING,
 };
 
@@ -107,7 +105,6 @@ pd_printer_impl_finalize (GObject *object)
 
 	g_debug ("[Printer %s] Finalize", printer->id);
 	/* note: we don't hold a reference to printer->daemon */
-	g_hash_table_unref (printer->state_reasons);
 	g_ptr_array_foreach (printer->jobs,
 			     pd_printer_impl_remove_job,
 			     NULL);
@@ -122,24 +119,10 @@ pd_printer_impl_get_property (GObject *object,
 			      GParamSpec *pspec)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
-	GList *state_reasons, *sr;
-	gchar **strv, **p;
 
 	switch (prop_id) {
 	case PROP_DAEMON:
 		g_value_set_object (value, pd_printer_impl_get_daemon (printer));
-		break;
-	case PROP_STATE_REASONS:
-		state_reasons = g_hash_table_get_keys (printer->state_reasons);
-		strv = g_malloc0 (sizeof (gchar *) *
-				  (1 + g_list_length (state_reasons)));
-		for (p = strv, sr = g_list_first (state_reasons);
-		     sr;
-		     sr = g_list_next (sr))
-			*p++ = g_strdup (sr->data);
-
-		g_value_take_boxed (value, strv);
-		g_list_free (state_reasons);
 		break;
 	case PROP_JOB_OUTGOING:
 		g_value_set_boolean (value, printer->job_outgoing);
@@ -157,24 +140,12 @@ pd_printer_impl_set_property (GObject *object,
 			      GParamSpec *pspec)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
-	const gchar **state_reasons;
-	const gchar **state_reason;
 
 	switch (prop_id) {
 	case PROP_DAEMON:
 		g_assert (printer->daemon == NULL);
 		/* we don't take a reference to the daemon */
 		printer->daemon = g_value_get_object (value);
-		break;
-	case PROP_STATE_REASONS:
-		state_reasons = g_value_get_boxed (value);
-		g_hash_table_remove_all (printer->state_reasons);
-		for (state_reason = state_reasons;
-		     *state_reason;
-		     state_reason++) {
-			gchar *r = g_strdup (*state_reason);
-			g_hash_table_insert (printer->state_reasons, r, r);
-		}
 		break;
 	case PROP_JOB_OUTGOING:
 		printer->job_outgoing = g_value_get_boolean (value);
@@ -240,12 +211,6 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 			       "supported",
 			       &value);
 
-	/* State reasons */
-	printer->state_reasons = g_hash_table_new_full (g_str_hash,
-							g_str_equal,
-							g_free,
-							NULL);
-
 	/* Array of jobs */
 	printer->jobs = g_ptr_array_new_full (0,
 					      (GDestroyNotify) g_object_unref);
@@ -279,19 +244,6 @@ pd_printer_impl_class_init (PdPrinterImplClass *klass)
 							      G_PARAM_WRITABLE |
 							      G_PARAM_CONSTRUCT_ONLY |
 							      G_PARAM_STATIC_STRINGS));
-
-	/**
-	 * PdPrinterImpl:state-reasons:
-	 *
-	 * The queue's state reasons.
-	 */
-	g_object_class_install_property (gobject_class,
-					 PROP_STATE_REASONS,
-					 g_param_spec_boxed ("state-reasons",
-							     "State reasons",
-							     "The queue's state reasons",
-							     G_TYPE_STRV,
-							     G_PARAM_READWRITE));
 
 	/**
 	 * PdPrinterImpl:job-outgoing:
