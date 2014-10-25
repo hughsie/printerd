@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
  * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,6 +53,10 @@ void		 pd_printer_impl_set_id		(PdPrinterImpl	*printer,
 						 const gchar	*id);
 void		 pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 						  GVariant	*defaults);
+void		 pd_printer_impl_add_state_reason (PdPrinterImpl *printer,
+						   const gchar *reason);
+void		 pd_printer_impl_remove_state_reason (PdPrinterImpl *printer,
+						      const gchar *reason);
 const gchar	*pd_printer_impl_get_uri	(PdPrinterImpl	*printer);
 PdJob		*pd_printer_impl_get_next_job	(PdPrinterImpl	*printer);
 

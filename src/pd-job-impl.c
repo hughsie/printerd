@@ -101,6 +101,15 @@ enum
 	PROP_DAEMON,
 };
 
+enum
+{
+	ADD_PRINTER_STATE_REASON,
+	REMOVE_PRINTER_STATE_REASON,
+	LAST_SIGNAL
+};
+
+static guint signals[LAST_SIGNAL] = { 0 };
+
 static void pd_job_iface_init (PdJobIface *iface);
 static void pd_job_impl_add_state_reason (PdJobImpl *job,
 					  const gchar *reason);
@@ -283,6 +292,39 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							      G_PARAM_CONSTRUCT_ONLY |
 							      G_PARAM_STATIC_STRINGS));
 
+	/**
+	 * PdJobImpl::add-printer-state-reason
+	 *
+	 * This signal is emitted by the #PdJob when a filter chain
+	 * indicates that a printer state reason should be added.
+	 */
+	signals[ADD_PRINTER_STATE_REASON] = g_signal_new ("add-printer-state-reason",
+							  G_OBJECT_CLASS_TYPE (klass),
+							  G_SIGNAL_RUN_LAST,
+							  0, /* G_STRUCT_OFFSET */
+							  NULL, /* accu */
+							  NULL, /* accu data */
+							  g_cclosure_marshal_generic,
+							  G_TYPE_NONE,
+							  1,
+							  G_TYPE_STRING);
+
+	/**
+	 * PdJobImpl::remove-printer-state-reason
+	 *
+	 * This signal is emitted by the #PdJob when a filter chain
+	 * indicates that a printer state reason should be removed.
+	 */
+	signals[REMOVE_PRINTER_STATE_REASON] = g_signal_new ("remove-printer-state-reason",
+							     G_OBJECT_CLASS_TYPE (klass),
+							     G_SIGNAL_RUN_LAST,
+							     0, /* G_STRUCT_OFFSET */
+							     NULL, /* accu */
+							     NULL, /* accu data */
+							     g_cclosure_marshal_generic,
+							     G_TYPE_NONE,
+							     1,
+							     G_TYPE_STRING);
 }
 
 /**
@@ -315,81 +357,39 @@ state_reason_is_set (PdJobImpl *job,
 }
 
 static void
-pd_job_impl_set_state_reasons (PdJobImpl *job,
-			       const gchar *reason,
-			       gchar add_or_remove)
-{
-	const gchar *const *strv_old;
-	gchar **strv_new;
-	guint length;
-	gint i, j;
-
-	strv_old = pd_job_get_state_reasons (PD_JOB (job));
-	length = g_strv_length ((gchar **) strv_old);
-	strv_new = g_malloc0_n (2 + length, sizeof (gchar *));
-	for (i = 0, j = 0; strv_old[i] != NULL; i++) {
-		if (!strcmp (strv_old[i], reason)) {
-			/* Found the state reason */
-			if (add_or_remove == '+')
-				/* Add: nothing to do */
-				break;
-
-			/* Remove: skip it */
-			continue;
-		}
-
-		strv_new[j++] = g_strdup (strv_old[i]);
-	}
-
-	if ((add_or_remove == '+' && strv_old[i] != NULL) ||
-	    (add_or_remove == '-' && i == j))
-		/* Nothing to do. */
-		goto out;
-
-	if (add_or_remove == '+')
-		strv_new[j++] = g_strdup (reason);
-
-	pd_job_set_state_reasons (PD_JOB (job),
-				  (const gchar *const *)strv_new);
-out:
-	g_strfreev (strv_new);
-
-	const gchar *const *strv = pd_job_get_state_reasons (PD_JOB (job));
-	GString *reasons = NULL;
-	const gchar *const *r;
-	for (r = strv; *r != NULL; r++) {
-		if (reasons == NULL) {
-			reasons = g_string_new ("[");
-			g_string_append (reasons, *r);
-		} else
-			g_string_append_printf (reasons, ",%s", *r);
-	}
-
-	if (reasons)
-		g_string_append_c (reasons, ']');
-
-	g_debug ("[Job %u] State reasons %c= %s, now %s",
-		 pd_job_get_id (PD_JOB (job)),
-		 add_or_remove,
-		 reason,
-		 reasons ? reasons->str : "[none]");
-
-	if (reasons)
-		g_string_free (reasons, TRUE);
-}
-
-static void
 pd_job_impl_add_state_reason (PdJobImpl *job,
 			      const gchar *reason)
 {
-	pd_job_impl_set_state_reasons (job, reason, '+');
+	const gchar *const *reasons;
+	gchar **strv;
+
+	g_debug ("[Job %u] state-reasons += %s",
+		 pd_job_get_id (PD_JOB (job)),
+		 reason);
+
+	reasons = pd_job_get_state_reasons (PD_JOB (job));
+	strv = add_or_remove_state_reason (reasons, '+', reason);
+	pd_job_set_state_reasons (PD_JOB (job),
+				  (const gchar *const *) strv);
+	g_strfreev (strv);
 }
 
 static void
 pd_job_impl_remove_state_reason (PdJobImpl *job,
 				 const gchar *reason)
 {
-	pd_job_impl_set_state_reasons (job, reason, '-');
+	const gchar *const *reasons;
+	gchar **strv;
+
+	g_debug ("[Job %u] state-reasons -= %s",
+		 pd_job_get_id (PD_JOB (job)),
+		 reason);
+
+	reasons = pd_job_get_state_reasons (PD_JOB (job));
+	strv = add_or_remove_state_reason (reasons, '-', reason);
+	pd_job_set_state_reasons (PD_JOB (job),
+				  (const gchar *const *) strv);
+	g_strfreev (strv);
 }
 
 static gboolean
@@ -510,11 +510,15 @@ pd_job_impl_parse_stderr (PdJobImpl *job,
 
 				/* Process this reason */
 				if (add_or_remove == '+')
-					pd_job_impl_add_state_reason (job,
-								      reason);
+					g_signal_emit (PD_JOB (job),
+						       signals[ADD_PRINTER_STATE_REASON],
+						       0,
+						       reason);
 				else
-					pd_job_impl_remove_state_reason (job,
-									 reason);
+					g_signal_emit (PD_JOB (job),
+						       signals[REMOVE_PRINTER_STATE_REASON],
+						       0,
+						       reason);
 
 				g_free (reason);
 

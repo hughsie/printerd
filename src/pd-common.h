@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2012 Tim Waugh <twaugh@redhat.com>
+ * Copyright (C) 2012, 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,9 @@ GHashTable	*pd_parse_ieee1284_id		(const gchar *idstring);
 const gchar	*pd_job_state_as_string		(guint job_state);
 const gchar	*pd_printer_state_as_string	(guint printer_state);
 gchar		*pd_get_unix_user		(GDBusMethodInvocation *invocation);
+gchar **	add_or_remove_state_reason	(const gchar *const *reasons,
+						 gchar add_or_remove,
+						 const gchar *reason);
 
 G_END_DECLS
 
