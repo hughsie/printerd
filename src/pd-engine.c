@@ -442,27 +442,22 @@ pd_engine_job_state_reasons_notify	(PdJob *job)
 	guint job_id = pd_job_get_id (job);
 	PdObject *obj = NULL;
 	PdPrinter *printer = NULL;
-	GValue state_reasons = G_VALUE_INIT;
+	const gchar *const *state_reasons;
 	GValue job_outgoing = G_VALUE_INIT;
-	gchar **strv;
 	gint i;
 
 	g_return_if_fail (PD_IS_JOB (job));
 
-	g_value_init (&state_reasons, G_TYPE_STRV);
 	g_value_init (&job_outgoing, G_TYPE_BOOLEAN);
 	g_value_set_boolean (&job_outgoing, FALSE);
 
-	g_object_get_property (G_OBJECT (job),
-			       "state-reasons",
-			       &state_reasons);
+	state_reasons = pd_job_get_state_reasons (PD_JOB (job));
 	g_debug ("[Engine] Job %u changed state reasons", job_id);
-	strv = g_value_get_boxed (&state_reasons);
-	for (i = 0; strv[i] != NULL; i++)
-		if (!strcmp (strv[i], "job-outgoing"))
+	for (i = 0; state_reasons[i] != NULL; i++)
+		if (!strcmp (state_reasons[i], "job-outgoing"))
 			break;
 
-	if (strv[i] == NULL) {
+	if (state_reasons[i] == NULL) {
 		g_debug ("[Engine] Job %u no longer outgoing", job_id);
 
 		daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
@@ -486,7 +481,6 @@ pd_engine_job_state_reasons_notify	(PdJob *job)
 		g_object_unref (obj);
 	if (printer)
 		g_object_unref (printer);
-	g_value_unset (&state_reasons);
 	g_value_unset (&job_outgoing);
 }
 
