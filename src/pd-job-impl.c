@@ -788,8 +788,8 @@ pd_job_impl_create_pipe_for (PdJobImpl *job,
 	gint pipe_fd[2];
 
 	if (pipe (pipe_fd) != 0) {
-		g_error ("[Job %u] Failed to create pipe: %s",
-			 pd_job_get_id (PD_JOB (job)), g_strerror (errno));
+		g_warning ("[Job %u] Failed to create pipe: %s",
+			   pd_job_get_id (PD_JOB (job)), g_strerror (errno));
 		return FALSE;
 	}
 
@@ -1026,8 +1026,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	/* Open document */
 	document_fd = open (job->document_filename, O_RDONLY);
 	if (document_fd == -1) {
-		g_error ("[Job %u] Failed to open spool file %s: %s",
-			 job_id, job->document_filename, g_strerror (errno));
+		g_warning ("[Job %u] Failed to open spool file %s: %s",
+			   job_id, job->document_filename, g_strerror (errno));
 		goto fail;
 	}
 
@@ -1076,8 +1076,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	/* Connect the back-channel between backend and filter-chain */
 	if (pipe (pipe_fd) != 0) {
-		g_error ("[Job %u] Failed to create pipe: %s",
-			 job_id, g_strerror (errno));
+		g_warning ("[Job %u] Failed to create pipe: %s",
+			   job_id, g_strerror (errno));
 		goto fail;
 	}
 
@@ -1091,8 +1091,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	/* Connect the side-channel between filter-chain and backend */
 	if (socketpair (AF_LOCAL, SOCK_STREAM, 0, pipe_fd) != 0) {
-		g_error ("[Job %u] Failed to create socket pair: %s",
-			 job_id, g_strerror (errno));
+		g_warning ("[Job %u] Failed to create socket pair: %s",
+			   job_id, g_strerror (errno));
 		goto fail;
 	}
 
@@ -1111,8 +1111,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
 		if (!pd_job_impl_run_process (job, jp, &error)) {
-			g_error ("[Job %u] Running %s: %s",
-				 job_id, jp->what, error->message);
+			g_warning ("[Job %u] Running %s: %s",
+				   job_id, jp->what, error->message);
 			g_error_free (error);
 			goto fail;
 		}
@@ -1175,8 +1175,8 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	/* Run backend */
 	pd_job_impl_add_state_reason (job, "job-outgoing");
 	if (!pd_job_impl_run_process (job, &job->backend, &error)) {
-		g_error ("[Job %u] Running backend: %s",
-			 job_id, error->message);
+		g_warning ("[Job %u] Running backend: %s",
+			   job_id, error->message);
 		g_error_free (error);
 
 		/* Update job state */
@@ -1346,7 +1346,7 @@ pd_job_impl_add_document (PdJob *_job,
 
 	g_debug ("[Job %u] Adding document", job_id);
 	if (fd_list == NULL || g_unix_fd_list_get_length (fd_list) != 1) {
-		g_error ("[Job %u] Bad AddDocument call", job_id);
+		g_warning ("[Job %u] Bad AddDocument call", job_id);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
