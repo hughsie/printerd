@@ -304,14 +304,9 @@ static gboolean
 state_reason_is_set (PdJobImpl *job,
 		     const gchar *reason)
 {
-	GValue state_reasons = G_VALUE_INIT;
-	gchar **strv;
-	gchar **r;
-	g_value_init (&state_reasons, G_TYPE_STRV);
-	g_object_get_property (G_OBJECT (job),
-			       "state-reasons",
-			       &state_reasons);
-	strv = g_value_get_boxed (&state_reasons);
+	const gchar *const *strv;
+	const gchar *const *r;
+	strv = pd_job_get_state_reasons (PD_JOB (job));
 	for (r = strv; *r != NULL; r++)
 		if (!strcmp (*r, reason))
 			return TRUE;
@@ -324,18 +319,13 @@ pd_job_impl_set_state_reasons (PdJobImpl *job,
 			       const gchar *reason,
 			       gchar add_or_remove)
 {
-	GValue state_reasons = G_VALUE_INIT;
-	gchar **strv_old;
+	const gchar *const *strv_old;
 	gchar **strv_new;
 	guint length;
 	gint i, j;
 
-	g_value_init (&state_reasons, G_TYPE_STRV);
-	g_object_get_property (G_OBJECT (job),
-			       "state-reasons",
-			       &state_reasons);
-	strv_old = g_value_get_boxed (&state_reasons);
-	length = g_strv_length (strv_old);
+	strv_old = pd_job_get_state_reasons (PD_JOB (job));
+	length = g_strv_length ((gchar **) strv_old);
 	strv_new = g_malloc0_n (2 + length, sizeof (gchar *));
 	for (i = 0, j = 0; strv_old[i] != NULL; i++) {
 		if (!strcmp (strv_old[i], reason)) {
@@ -359,21 +349,15 @@ pd_job_impl_set_state_reasons (PdJobImpl *job,
 	if (add_or_remove == '+')
 		strv_new[j++] = g_strdup (reason);
 
-	g_value_set_boxed (&state_reasons, strv_new);
-	g_object_set_property (G_OBJECT (job),
-			       "state-reasons",
-			       &state_reasons);
+	pd_job_set_state_reasons (PD_JOB (job),
+				  (const gchar *const *)strv_new);
 out:
 	g_strfreev (strv_new);
 
-	g_object_get_property (G_OBJECT (job),
-			       "state-reasons",
-			       &state_reasons);
-	strv_new = g_value_get_boxed (&state_reasons);
-
+	const gchar *const *strv = pd_job_get_state_reasons (PD_JOB (job));
 	GString *reasons = NULL;
-	gchar **r;
-	for (r = strv_new; *r != NULL; r++) {
+	const gchar *const *r;
+	for (r = strv; *r != NULL; r++) {
 		if (reasons == NULL) {
 			reasons = g_string_new ("[");
 			g_string_append (reasons, *r);
@@ -819,17 +803,16 @@ pd_job_impl_process_setup (gpointer user_data)
 }
 
 static GVariant *
-get_attribute_value (GObject *job,
+get_attribute_value (PdJob *job,
 		     const gchar *key)
 {
-	GValue attributes = G_VALUE_INIT;
+	GVariant *attributes;
 	GVariantIter iter;
 	gchar *dkey;
 	GVariant *dvalue;
 
-	g_value_init (&attributes, G_TYPE_VARIANT);
-	g_object_get_property (G_OBJECT (job), "attributes", &attributes);
-	g_variant_iter_init (&iter, g_value_get_variant (&attributes));
+	attributes = pd_job_get_attributes (PD_JOB (job));
+	g_variant_iter_init (&iter, attributes);
 	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
 		if (!strcmp (dkey, key))
 			return dvalue;
@@ -854,8 +837,8 @@ pd_job_impl_run_process (PdJobImpl *job,
 
 	uri = pd_job_get_device_uri (PD_JOB (job));
 
-	variant = get_attribute_value (G_OBJECT (job),
-					"job-originating-user-name");
+	variant = get_attribute_value (PD_JOB (job),
+				       "job-originating-user-name");
 	if (variant) {
 		username = g_variant_dup_string (variant, NULL);
 		/* no need to free variant: we don't own a reference */
@@ -1202,7 +1185,7 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 			   const gchar *name,
 			   GVariant *value)
 {
-	GValue attributes = G_VALUE_INIT;
+	GVariant *attributes;
 	GVariantBuilder builder;
 	GVariantIter viter;
 	GHashTable *ht;
@@ -1211,16 +1194,15 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 	GVariant *dvalue;
 
 	/* Read the current value of the 'attributes' property */
-	g_value_init (&attributes, G_TYPE_VARIANT);
-	g_object_get_property (G_OBJECT (job), "attributes", &attributes);
+	attributes = pd_job_get_attributes (PD_JOB (job));
 
 	/* Convert to a GHashTable */
 	ht = g_hash_table_new_full (g_str_hash,
 				    g_str_equal,
 				    g_free,
-				    (GDestroyNotify) g_variant_unref);
+				    NULL);
 
-	g_variant_iter_init (&viter, g_value_get_variant (&attributes));
+	g_variant_iter_init (&viter, attributes);
 	while (g_variant_iter_next (&viter, "{sv}", &dkey, &dvalue))
 		g_hash_table_insert (ht, dkey, dvalue);
 
@@ -1229,7 +1211,7 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 			     g_strdup (name),
 			     g_variant_ref_sink (value));
 
-	/* Convert back to a GValue */
+	/* Convert back to a GVariant */
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
 	g_hash_table_iter_init (&htiter, ht);
 	while (g_hash_table_iter_next (&htiter,
@@ -1238,12 +1220,9 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 		g_variant_builder_add (&builder, "{sv}",
 				       g_strdup (dkey), dvalue);
 
-	g_value_set_variant (&attributes, g_variant_builder_end (&builder));
-
-	/* Write it back to the property */
-	g_object_set_property (G_OBJECT (job),
-			       "attributes",
-			       &attributes);
+	/* Write it back */
+	pd_job_set_attributes (PD_JOB (job),
+			       g_variant_builder_end (&builder));
 
 	g_hash_table_unref (ht);
 }
@@ -1275,7 +1254,7 @@ pd_job_impl_add_document (PdJob *_job,
 		goto out;
 
 	/* Check if this user owns the job */
-	attr_user = get_attribute_value (G_OBJECT (job),
+	attr_user = get_attribute_value (PD_JOB (job),
 					 "job-originating-user-name");
 	if (attr_user)
 		originating_user = g_variant_get_string (attr_user, NULL);
@@ -1360,7 +1339,7 @@ pd_job_impl_start (PdJob *_job,
 		goto out;
 
 	/* Check if this user owns the job */
-	attr_user = get_attribute_value (G_OBJECT (job),
+	attr_user = get_attribute_value (PD_JOB (job),
 					 "job-originating-user-name");
 	if (attr_user)
 		originating_user = g_variant_get_string (attr_user, NULL);
@@ -1487,7 +1466,7 @@ pd_job_impl_cancel (PdJob *_job,
 		goto out;
 
 	/* Check if this user owns the job */
-	attr_user = get_attribute_value (G_OBJECT (job),
+	attr_user = get_attribute_value (PD_JOB (job),
 					 "job-originating-user-name");
 	if (attr_user)
 		originating_user = g_variant_get_string (attr_user, NULL);
