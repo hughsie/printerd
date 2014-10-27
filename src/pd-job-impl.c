@@ -28,6 +28,8 @@
 #include <unistd.h>
 
 #include <gio/gunixfdlist.h>
+#include <gio/gunixinputstream.h>
+#include <gio/gunixoutputstream.h>
 #include <glib.h>
 #include <glib/gi18n.h>
 #include <glib/gstdio.h>
@@ -1384,10 +1386,9 @@ pd_job_impl_start (PdJob *_job,
 	guint job_id = pd_job_get_id (PD_JOB (job));
 	gchar *name_used = NULL;
 	GError *error = NULL;
-	gint infd = -1;
-	gint spoolfd = -1;
-	char buffer[1024];
-	ssize_t got, wrote;
+	GInputStream *input = NULL;
+	GOutputStream *output = NULL;
+	gint spoolfd;
 	GVariant *attr_user;
 	gchar *requesting_user = NULL;
 	const gchar *originating_user = NULL;
@@ -1447,43 +1448,25 @@ pd_job_impl_start (PdJob *_job,
 
 	g_debug ("[Job %u] Spooling", job_id);
 	g_debug ("[Job %u]   Created temporary file %s", job_id, name_used);
-	infd = job->document_fd;
+
+	input = g_unix_input_stream_new (job->document_fd,
+					 TRUE /* close_fd */);
+	output = g_unix_output_stream_new (spoolfd,
+					   TRUE /* close_fd */);
 	job->document_fd = -1;
 
-	for (;;) {
-		char *ptr;
-		got = read (infd, buffer, sizeof (buffer));
-		if (got == 0)
-			/* end of file */
-			break;
-		else if (got < 0) {
-			/* error */
-			g_dbus_method_invocation_return_error (invocation,
-							       PD_ERROR,
-							       PD_ERROR_FAILED,
-							       "Error reading file");
-			goto out;
-		}
+	if (g_output_stream_splice (output,
+				    input,
+				    G_OUTPUT_STREAM_SPLICE_NONE,
+				    NULL, /* cancellable */
+				    &error) == -1)
+		goto fail;
 
-		ptr = buffer;
-		while (got > 0) {
-			wrote = write (spoolfd, ptr, got);
-			if (wrote == -1) {
-				if (errno == EINTR)
-					continue;
-				else {
-					g_dbus_method_invocation_return_error (invocation,
-									       PD_ERROR,
-									       PD_ERROR_FAILED,
-									       "Error writing file");
-					goto out;
-				}
-			}
+	if (g_output_stream_close (output, NULL, &error) == -1)
+		goto fail;
 
-			ptr += wrote;
-			got -= wrote;
-		}
-	}
+	if (!g_input_stream_close (input, NULL, &error))
+		goto fail;
 
 	/* Job is no longer incoming so remove that state reason if
 	   present */
@@ -1500,12 +1483,21 @@ pd_job_impl_start (PdJob *_job,
 
  out:
 	g_free (requesting_user);
-	if (infd != -1)
-		close (infd);
-	if (spoolfd != -1)
-		close (spoolfd);
+	if (input)
+		g_object_unref (input);
+	if (output)
+		g_object_unref (output);
 	g_free (name_used);
 	return TRUE; /* handled the method invocation */
+
+fail:
+	/* error */
+	g_dbus_method_invocation_return_error (invocation,
+					       PD_ERROR,
+					       PD_ERROR_FAILED,
+					       "Error spooling file");
+	goto out;
+
 }
 
 /* Cancel or abort job */
