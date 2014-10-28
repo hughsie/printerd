@@ -817,9 +817,11 @@ get_attribute_value (PdJob *job,
 
 	attributes = pd_job_get_attributes (PD_JOB (job));
 	g_variant_iter_init (&iter, attributes);
-	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-		if (!strcmp (dkey, key))
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue))
+		if (!strcmp (dkey, key)) {
+			g_free (dkey);
 			return dvalue;
+		}
 
 	return NULL;
 }
@@ -845,7 +847,7 @@ pd_job_impl_run_process (PdJobImpl *job,
 				       "job-originating-user-name");
 	if (variant) {
 		username = g_variant_dup_string (variant, NULL);
-		/* no need to free variant: we don't own a reference */
+		g_variant_unref (variant);
 	} else
 		username = g_strdup ("unknown");
 
@@ -1260,8 +1262,10 @@ pd_job_impl_add_document (PdJob *_job,
 	/* Check if this user owns the job */
 	attr_user = get_attribute_value (PD_JOB (job),
 					 "job-originating-user-name");
-	if (attr_user)
+	if (attr_user) {
 		originating_user = g_variant_get_string (attr_user, NULL);
+		g_variant_unref (attr_user);
+	}
 	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
 		g_debug ("[Job %u] AddDocument: denied "
@@ -1345,8 +1349,10 @@ pd_job_impl_start (PdJob *_job,
 	/* Check if this user owns the job */
 	attr_user = get_attribute_value (PD_JOB (job),
 					 "job-originating-user-name");
-	if (attr_user)
+	if (attr_user) {
 		originating_user = g_variant_get_string (attr_user, NULL);
+		g_variant_unref (attr_user);
+	}
 	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
 		g_debug ("[Job %u] AddDocument: denied "
@@ -1472,8 +1478,10 @@ pd_job_impl_cancel (PdJob *_job,
 	/* Check if this user owns the job */
 	attr_user = get_attribute_value (PD_JOB (job),
 					 "job-originating-user-name");
-	if (attr_user)
+	if (attr_user) {
 		originating_user = g_variant_get_string (attr_user, NULL);
+		g_variant_unref (attr_user);
+	}
 	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
 		g_debug ("[Job %u] AddDocument: denied "
