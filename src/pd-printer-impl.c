@@ -109,6 +109,7 @@ pd_printer_impl_remove_job (gpointer data,
 	job_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				    pd_job_get_id (job));
 	pd_engine_remove_job (engine, job_path);
+	g_free (job_path);
 }
 
 static void
