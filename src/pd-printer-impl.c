@@ -123,6 +123,7 @@ pd_printer_impl_finalize (GObject *object)
 			     pd_printer_impl_remove_job,
 			     printer);
 	g_ptr_array_free (printer->jobs, TRUE);
+	g_free (printer->id);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
