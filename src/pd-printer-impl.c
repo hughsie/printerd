@@ -679,7 +679,6 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       pd_job_get_id (job));
 	g_debug ("[Printer %s] Job path is %s", printer->id, object_path);
-	g_variant_builder_init (&unsupported, G_VARIANT_TYPE ("a{sv}"));
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_new ("(o@a{sv})",
 							      object_path,
