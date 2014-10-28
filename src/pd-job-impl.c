@@ -1264,11 +1264,13 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 	ht = g_hash_table_new_full (g_str_hash,
 				    g_str_equal,
 				    g_free,
-				    NULL);
+				    (GDestroyNotify) g_variant_unref);
 
 	g_variant_iter_init (&viter, attributes);
-	while (g_variant_iter_next (&viter, "{sv}", &dkey, &dvalue))
-		g_hash_table_insert (ht, dkey, dvalue);
+	while (g_variant_iter_loop (&viter, "{sv}", &dkey, &dvalue))
+		g_hash_table_insert (ht,
+				     g_strdup (dkey),
+				     g_variant_ref_sink (dvalue));
 
 	/* Set the attribute value */
 	g_hash_table_insert (ht,
@@ -1281,8 +1283,7 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 	while (g_hash_table_iter_next (&htiter,
 				       (gpointer *) &dkey,
 				       (gpointer *) &dvalue))
-		g_variant_builder_add (&builder, "{sv}",
-				       g_strdup (dkey), dvalue);
+		g_variant_builder_add (&builder, "{sv}", dkey, dvalue);
 
 	/* Write it back */
 	pd_job_set_attributes (PD_JOB (job),
