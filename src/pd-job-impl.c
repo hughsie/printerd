@@ -83,7 +83,7 @@ struct _PdJobImpl
 	gchar		*document_filename;
 
 	GList		*filterchain; /* of _PdJobProcess* */
-	struct _PdJobProcess backend;
+	struct _PdJobProcess *backend;
 	gint		 pending_job_state;
 
 	/* Data ready to send to the backend */
@@ -158,6 +158,8 @@ pd_job_impl_finalize_jp (gpointer data)
 		if (jp->channel[i])
 			g_io_channel_unref (jp->channel[i]);
 	}
+
+	g_free (jp);
 }
 
 static void
@@ -180,7 +182,7 @@ pd_job_impl_finalize (GObject *object)
 			  pd_job_impl_finalize_jp);
 
 	/* Shut down backend */
-	pd_job_impl_finalize_jp (&job->backend);
+	pd_job_impl_finalize_jp (job->backend);
 
 	g_signal_handlers_disconnect_by_func (job,
 					      pd_job_impl_job_state_notify,
@@ -248,7 +250,8 @@ pd_job_impl_init (PdJobImpl *job)
 
 	job->document_fd = -1;
 
-	pd_job_impl_init_jp (job, &job->backend);
+	job->backend = g_malloc0 (sizeof (struct _PdJobProcess));
+	pd_job_impl_init_jp (job, job->backend);
 
 	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING_HELD);
 	gchar *incoming[] = { g_strdup ("job-incoming"), NULL };
@@ -454,7 +457,7 @@ pd_job_impl_process_watch_cb (GPid pid,
 		jp->channel[STDIN_FILENO] = NULL;
 	}
 
-	if (jp != &job->backend)
+	if (jp != job->backend)
 		/* Filter. */
 		pd_job_impl_check_job_transforming (job);
 	else
@@ -469,8 +472,8 @@ pd_job_impl_process_watch_cb (GPid pid,
 		job->pending_job_state = PD_JOB_STATE_ABORTED;
 	}
 
-	if (job->backend.started &&
-	    job->backend.finished) {
+	if (job->backend->started &&
+	    job->backend->finished) {
 		GList *filter;
 		struct _PdJobProcess *eachjp;
 		for (filter = g_list_first (job->filterchain);
@@ -552,9 +555,9 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 	gint nextfd;
 
 	if (condition & (G_IO_IN | G_IO_HUP)) {
-		g_assert (thisjp != &job->backend);
+		g_assert (thisjp != job->backend);
 		thisfd = STDOUT_FILENO;
-		nextjp = &job->backend;
+		nextjp = job->backend;
 		nextfd = STDIN_FILENO;
 
 		/* Read some data */
@@ -630,10 +633,10 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 		g_assert (condition == G_IO_OUT);
 		thisfd = STDIN_FILENO;
 		nextfd = STDOUT_FILENO;
-		if (thisjp == &job->backend)
+		if (thisjp == job->backend)
 			nextjp = g_list_first (job->filterchain)->data;
 		else
-			nextjp = &job->backend;
+			nextjp = job->backend;
 
 		if (job->buflen - job->bufsent == 0) {
 			/* End of input */
@@ -968,8 +971,8 @@ pd_job_impl_run_process (PdJobImpl *job,
 						 TRUE);
 
 		/* Set the data channels up for binary data. */
-		if ((jp == &job->backend && i < 1) ||
-		    (jp != &job->backend && i < 2))
+		if ((jp == job->backend && i < 1) ||
+		    (jp != job->backend && i < 2))
 			g_io_channel_set_encoding (channel, NULL, NULL);
 
 		jp->channel[i] = channel;
@@ -1034,8 +1037,9 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	}
 
 	/* Set up pipeline */
-	job->backend.cmd = g_strdup_printf ("/usr/lib/cups/backend/%s", scheme);
-	job->backend.what = "backend";
+	job->backend->cmd = g_strdup_printf ("/usr/lib/cups/backend/%s",
+					     scheme);
+	job->backend->what = "backend";
 
 	/* Set up the arranger */
 	jp = g_malloc0 (sizeof (struct _PdJobProcess));
@@ -1044,12 +1048,12 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	jp->what = "arranger";
 
 	/* Set up a pipe to read the backend's stdout */
-	if (!pd_job_impl_create_pipe_for (job, &job->backend,
+	if (!pd_job_impl_create_pipe_for (job, job->backend,
 					  STDOUT_FILENO, TRUE))
 		goto fail_setup;
 
 	/* Set up a pipe to read the backend's stderr */
-	if (!pd_job_impl_create_pipe_for (job, &job->backend,
+	if (!pd_job_impl_create_pipe_for (job, job->backend,
 					  STDERR_FILENO, TRUE))
 		goto fail_setup;
 
@@ -1061,7 +1065,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto fail_setup;
 
 	/* Set up a pipe to write to the backend's stdin */
-	if (!pd_job_impl_create_pipe_for (job, &job->backend,
+	if (!pd_job_impl_create_pipe_for (job, job->backend,
 					  STDIN_FILENO, FALSE))
 		goto fail_setup;
 
@@ -1083,7 +1087,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto fail;
 	}
 
-	job->backend.child_fd[PD_FD_BACK] = pipe_fd[STDOUT_FILENO];
+	job->backend->child_fd[PD_FD_BACK] = pipe_fd[STDOUT_FILENO];
 	for (filter = g_list_first (job->filterchain);
 	     filter;
 	     filter = g_list_next (filter)) {
@@ -1098,7 +1102,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto fail;
 	}
 
-	job->backend.child_fd[PD_FD_SIDE] = pipe_fd[0];
+	job->backend->child_fd[PD_FD_SIDE] = pipe_fd[0];
 	for (filter = g_list_first (job->filterchain);
 	     filter;
 	     filter = g_list_next (filter)) {
@@ -1176,7 +1180,7 @@ pd_job_impl_start_sending (PdJobImpl *job)
 
 	/* Run backend */
 	pd_job_impl_add_state_reason (job, "job-outgoing");
-	if (!pd_job_impl_run_process (job, &job->backend, &error)) {
+	if (!pd_job_impl_run_process (job, job->backend, &error)) {
 		g_warning ("[Job %u] Running backend: %s",
 			   job_id, error->message);
 		g_error_free (error);
@@ -1187,23 +1191,23 @@ pd_job_impl_start_sending (PdJobImpl *job)
 		goto out;
 	}
 
-	job->backend.io_source[STDIN_FILENO] = 0;
+	job->backend->io_source[STDIN_FILENO] = 0;
 
-	channel = job->backend.channel[STDOUT_FILENO];
-	job->backend.io_source[STDOUT_FILENO] =
+	channel = job->backend->channel[STDOUT_FILENO];
+	job->backend->io_source[STDOUT_FILENO] =
 		g_io_add_watch (channel,
 				G_IO_IN |
 				G_IO_HUP,
 				pd_job_impl_message_io_cb,
-				&job->backend);
+				job->backend);
 
-	channel = job->backend.channel[STDERR_FILENO];
-	job->backend.io_source[STDERR_FILENO] =
+	channel = job->backend->channel[STDERR_FILENO];
+	job->backend->io_source[STDERR_FILENO] =
 		g_io_add_watch (channel,
 				G_IO_IN |
 				G_IO_HUP,
 				pd_job_impl_message_io_cb,
-				&job->backend);
+				job->backend);
 
 	/* When the backend finished the job state will be 'completed'. */
 	job->pending_job_state = PD_JOB_STATE_COMPLETED;
@@ -1536,7 +1540,7 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 		   e.g. eject the current page */
 
 		if (!pd_job_impl_check_job_transforming (job) &&
-		    !job->backend.started) {
+		    !job->backend->started) {
 			/* Already finished */
 			g_debug ("[Job %u] Stopped after transformation",
 				 job_id);
@@ -1550,19 +1554,19 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 		job->pending_job_state = job_state;
 		pd_job_impl_add_state_reason (job, "processing-to-stop-point");
 
-		if (job->backend.channel[STDIN_FILENO] != NULL) {
+		if (job->backend->channel[STDIN_FILENO] != NULL) {
 			/* Stop sending data to the backend. */
 			g_debug ("[Job %u] Stop sending data to the backend",
 				 job_id);
-			if (job->backend.io_source[STDIN_FILENO]) {
-				g_source_remove (job->backend.io_source[STDIN_FILENO]);
-				job->backend.io_source[STDIN_FILENO] = 0;
+			if (job->backend->io_source[STDIN_FILENO]) {
+				g_source_remove (job->backend->io_source[STDIN_FILENO]);
+				job->backend->io_source[STDIN_FILENO] = 0;
 			}
-			g_io_channel_shutdown (job->backend.channel[STDIN_FILENO],
+			g_io_channel_shutdown (job->backend->channel[STDIN_FILENO],
 					       FALSE,
 					       NULL);
-			g_io_channel_unref (job->backend.channel[STDIN_FILENO]);
-			job->backend.channel[STDIN_FILENO] = NULL;
+			g_io_channel_unref (job->backend->channel[STDIN_FILENO]);
+			job->backend->channel[STDIN_FILENO] = NULL;
 		}
 
 		/* Simple implementation for now: just kill the processes */
@@ -1582,13 +1586,13 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 			g_spawn_close_pid (jp->pid);
 		}
 
-		if (job->backend.started &&
-		    !job->backend.finished) {
+		if (job->backend->started &&
+		    !job->backend->finished) {
 			g_debug ("[Job %u] Sending KILL signal to backend (PID %d)",
 				 job_id,
-				 job->backend.pid);
-			kill (job->backend.pid, SIGKILL);
-			g_spawn_close_pid (job->backend.pid);
+				 job->backend->pid);
+			kill (job->backend->pid, SIGKILL);
+			g_spawn_close_pid (job->backend->pid);
 		}
 
 		break;
@@ -1652,7 +1656,7 @@ pd_job_impl_cancel (PdJob *_job,
 		   e.g. eject the current page */
 
 		if (!pd_job_impl_check_job_transforming (job) &&
-		    !job->backend.started)
+		    !job->backend->started)
 			goto cancel;
 
 		if (state_reason_is_set (job, "processing-to-stop-point")) {
