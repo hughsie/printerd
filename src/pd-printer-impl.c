@@ -322,19 +322,15 @@ update_attributes (GVariant *attributes, GVariant *updates)
 	/* Add any values from attributes that are not in updates */
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
 	g_variant_iter_init (&iter, attributes);
-	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue)) {
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue))
 		if (!g_variant_lookup_value (updates, dkey, NULL))
 			g_variant_builder_add (&builder, "{sv}",
-					       g_strdup (dkey),
-					       g_variant_ref (dvalue));
-	}
+					       dkey, dvalue);
 
 	/* Now add in the updates */
 	g_variant_iter_init (&iter, updates);
-	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-		g_variant_builder_add (&builder, "{sv}",
-				       g_strdup (dkey),
-				       g_variant_ref (dvalue));
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue))
+		g_variant_builder_add (&builder, "{sv}", dkey, dvalue);
 
 	return g_variant_builder_end (&builder);
 }
@@ -352,11 +348,10 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 
 	/* add/overwrite default values, keeping other existing values */
 	g_variant_iter_init (&iter, defaults);
-	while (g_variant_iter_next (&iter, "{sv}", &key, &value)) {
+	while (g_variant_iter_loop (&iter, "{sv}", &key, &value)) {
 		gchar *val = g_variant_print (value, TRUE);
 		g_debug ("[Printer %s] Defaults: set %s=%s",
 			 printer->id, key, val);
-		g_free (val);
 	}
 
 	current_defaults = pd_printer_get_defaults (PD_PRINTER (printer));
@@ -624,7 +619,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	/* Check for unsupported attributes */
 	g_variant_builder_init (&unsupported, G_VARIANT_TYPE ("a{sv}"));
 	g_variant_iter_init (&iter, attributes);
-	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue))
 		/* Is there a list of supported values? */
 		if (!attribute_value_is_supported (printer, dkey, dvalue)) {
 			gchar *val = g_variant_print (dvalue, TRUE);
