@@ -742,6 +742,8 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 			g_debug ("[Job %u] backend(stdout): %s",
 				 job_id,
 				 g_strchomp (line));
+
+		g_free (line);
 	}
 
 	switch (status) {
