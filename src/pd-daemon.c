@@ -348,7 +348,7 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
-						       message);
+						       "%s", message);
 		goto out;
 	}
 

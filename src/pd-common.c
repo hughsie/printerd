@@ -124,7 +124,7 @@ pd_get_unix_user (GDBusMethodInvocation *invocation)
 	GVariant *uid = NULL;
 	struct passwd pwd, *result;
 	gchar *buf = NULL;
-	gsize bufsize;
+	long bufsize;
 	int err;
 	const gchar *sender;
 
