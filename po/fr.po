@@ -1,21 +1,22 @@
 # SOME DESCRIPTIVE TITLE.
 # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the PACKAGE package.
-# 
+#
 # Translators:
 # frizer23 <jourliiaenne@voila.fr>, 2013
 msgid ""
 msgstr ""
 "Project-Id-Version: printerd\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2012-05-30 16:55+0100\n"
+"POT-Creation-Date: 2014-11-01 19:08+0000\n"
 "PO-Revision-Date: 2013-11-20 10:22+0000\n"
 "Last-Translator: frizer23 <jourliiaenne@voila.fr>\n"
-"Language-Team: French (http://www.transifex.com/projects/p/printerd/language/fr/)\n"
+"Language-Team: French (http://www.transifex.com/projects/p/printerd/language/"
+"fr/)\n"
+"Language: fr\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: fr\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
 #: ../data/org.freedesktop.printerd.policy.in.h:1
@@ -31,21 +32,45 @@ msgstr "Il est nécessaire de s’authentifier pour ajouter une imprimante"
 msgid "Add a job"
 msgstr "ajouter une tâche d’impression"
 
-#: ../data/org.freedesktop.printerd.policy.in.h:4 ../src/pd-printer-impl.c:818
+#: ../data/org.freedesktop.printerd.policy.in.h:4 ../src/pd-job-impl.c:1252
+#: ../src/pd-job-impl.c:1337 ../src/pd-printer-impl.c:620
 msgid "Authentication is required to add a job"
-msgstr "il est nécessaire de s’authentifier pour ajouter une tâche d’impression"
+msgstr ""
+"il est nécessaire de s’authentifier pour ajouter une tâche d’impression"
 
 #: ../data/org.freedesktop.printerd.policy.in.h:5
 msgid "Cancel a job"
 msgstr "Annuler une tâche d’impression"
 
-#: ../data/org.freedesktop.printerd.policy.in.h:6
+#: ../data/org.freedesktop.printerd.policy.in.h:6 ../src/pd-job-impl.c:1464
 msgid "Authentication is required to cancel a job"
-msgstr "Il est nécessaire de s’authentifier pour annuler une tâche d’impression"
+msgstr ""
+"Il est nécessaire de s’authentifier pour annuler une tâche d’impression"
 
 #: ../src/main.c:119 ../tools/pd-cli.c:503
 msgid "Show extra debugging information"
 msgstr "Plus d’informations de débogage"
+
+#: ../src/pd-job-impl.c:1269 ../src/pd-job-impl.c:1354
+#: ../src/pd-job-impl.c:1481
+msgid "Not job owner"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1279
+msgid "No more documents allowed"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1289
+msgid "Bad AddDocumentCall"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1521
+msgid "Already canceled"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1579
+msgid "Cannot cancel completed job"
+msgstr ""
 
 #: ../src/pd-manager-impl.c:337
 msgid "Not found"

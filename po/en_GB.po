@@ -1,19 +1,74 @@
 # SOME DESCRIPTIVE TITLE.
 # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the PACKAGE package.
-# 
+#
 # Tim Waugh <twaugh@redhat.com>, 2009.
 # Richard Hughes <richard@hughsie.com>, 2011.
 msgid ""
 msgstr ""
 "Project-Id-Version: printerd\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2011-07-20 12:43+0100\n"
+"POT-Creation-Date: 2014-11-01 19:08+0000\n"
 "PO-Revision-Date: 2011-07-20 11:44+0000\n"
 "Last-Translator: hughsie <richard@hughsie.com>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: en_GB\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: en_GB\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:1
+msgid "Add a printer"
+msgstr ""
+
+#: ../data/org.freedesktop.printerd.policy.in.h:2 ../src/pd-device-impl.c:303
+#: ../src/pd-manager-impl.c:300
+msgid "Authentication is required to add a printer"
+msgstr ""
+
+#: ../data/org.freedesktop.printerd.policy.in.h:3
+msgid "Add a job"
+msgstr ""
+
+#: ../data/org.freedesktop.printerd.policy.in.h:4 ../src/pd-job-impl.c:1252
+#: ../src/pd-job-impl.c:1337 ../src/pd-printer-impl.c:620
+msgid "Authentication is required to add a job"
+msgstr ""
+
+#: ../data/org.freedesktop.printerd.policy.in.h:5
+msgid "Cancel a job"
+msgstr ""
+
+#: ../data/org.freedesktop.printerd.policy.in.h:6 ../src/pd-job-impl.c:1464
+msgid "Authentication is required to cancel a job"
+msgstr ""
+
+#: ../src/main.c:119 ../tools/pd-cli.c:503
+msgid "Show extra debugging information"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1269 ../src/pd-job-impl.c:1354
+#: ../src/pd-job-impl.c:1481
+msgid "Not job owner"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1279
+msgid "No more documents allowed"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1289
+msgid "Bad AddDocumentCall"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1521
+msgid "Already canceled"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1579
+msgid "Cannot cancel completed job"
+msgstr ""
+
+#: ../src/pd-manager-impl.c:337
+msgid "Not found"
+msgstr ""

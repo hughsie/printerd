@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: printerd master\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2012-05-22 20:50+0700\n"
+"POT-Creation-Date: 2014-11-01 19:08+0000\n"
 "PO-Revision-Date: 2012-05-22 20:54+0700\n"
 "Last-Translator: Andika Triwidada <andika@gmail.com>\n"
 "Language-Team: Indonesia <id@li.org>\n"
@@ -21,38 +21,56 @@ msgstr ""
 "X-Poedit-SourceCharset: utf-8\n"
 
 #: ../data/org.freedesktop.printerd.policy.in.h:1
-msgid "Add a job"
-msgstr "Tambah tugas"
-
-#: ../data/org.freedesktop.printerd.policy.in.h:2
 msgid "Add a printer"
 msgstr "Tambah pencetak"
 
-#: ../data/org.freedesktop.printerd.policy.in.h:3
-#: ../src/pd-printer-impl.c:799
-msgid "Authentication is required to add a job"
-msgstr "Otentikasi diperlukan untuk menambah tugas"
-
-#: ../data/org.freedesktop.printerd.policy.in.h:4
-#: ../src/pd-device-impl.c:303
+#: ../data/org.freedesktop.printerd.policy.in.h:2 ../src/pd-device-impl.c:303
 #: ../src/pd-manager-impl.c:300
 msgid "Authentication is required to add a printer"
 msgstr "Otentikasi diperlukan untuk menambah pencetak"
 
-#: ../data/org.freedesktop.printerd.policy.in.h:5
-msgid "Authentication is required to cancel a job"
-msgstr "Otentikasi diperlukan untuk membatalkan tugas"
+#: ../data/org.freedesktop.printerd.policy.in.h:3
+msgid "Add a job"
+msgstr "Tambah tugas"
 
-#: ../data/org.freedesktop.printerd.policy.in.h:6
+#: ../data/org.freedesktop.printerd.policy.in.h:4 ../src/pd-job-impl.c:1252
+#: ../src/pd-job-impl.c:1337 ../src/pd-printer-impl.c:620
+msgid "Authentication is required to add a job"
+msgstr "Otentikasi diperlukan untuk menambah tugas"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:5
 msgid "Cancel a job"
 msgstr "Batalkan tugas"
 
-#: ../src/main.c:119
-#: ../tools/pd-client.c:503
+#: ../data/org.freedesktop.printerd.policy.in.h:6 ../src/pd-job-impl.c:1464
+msgid "Authentication is required to cancel a job"
+msgstr "Otentikasi diperlukan untuk membatalkan tugas"
+
+#: ../src/main.c:119 ../tools/pd-cli.c:503
 msgid "Show extra debugging information"
 msgstr "Tampilkan informasi pengawakutuan ekstra"
+
+#: ../src/pd-job-impl.c:1269 ../src/pd-job-impl.c:1354
+#: ../src/pd-job-impl.c:1481
+msgid "Not job owner"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1279
+msgid "No more documents allowed"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1289
+msgid "Bad AddDocumentCall"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1521
+msgid "Already canceled"
+msgstr ""
+
+#: ../src/pd-job-impl.c:1579
+msgid "Cannot cancel completed job"
+msgstr ""
 
 #: ../src/pd-manager-impl.c:337
 msgid "Not found"
 msgstr "Tak ditemukan"
-
