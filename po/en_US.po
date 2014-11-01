@@ -1,0 +1,51 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# 
+# Translators:
+msgid ""
+msgstr ""
+"Project-Id-Version: printerd\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2012-05-30 16:55+0100\n"
+"PO-Revision-Date: 2012-05-30 15:58+0000\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: English (United States) (http://www.transifex.com/projects/p/printerd/language/en_US/)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en_US\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:1
+msgid "Add a printer"
+msgstr "Add a printer"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:2 ../src/pd-device-impl.c:303
+#: ../src/pd-manager-impl.c:300
+msgid "Authentication is required to add a printer"
+msgstr "Authentication is required to add a printer"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:3
+msgid "Add a job"
+msgstr "Add a job"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:4 ../src/pd-printer-impl.c:818
+msgid "Authentication is required to add a job"
+msgstr "Authentication is required to add a job"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:5
+msgid "Cancel a job"
+msgstr "Cancel a job"
+
+#: ../data/org.freedesktop.printerd.policy.in.h:6
+msgid "Authentication is required to cancel a job"
+msgstr "Authentication is required to cancel a job"
+
+#: ../src/main.c:119 ../tools/pd-cli.c:503
+msgid "Show extra debugging information"
+msgstr "Show extra debugging information"
+
+#: ../src/pd-manager-impl.c:337
+msgid "Not found"
+msgstr "Not found"
