@@ -7,9 +7,11 @@ daemon as root in verbose mode from the command line:
 
 su -c '/usr/local/libexec/printerd -v'
 
-Now you can interact with it using the supplied "pd-client" tool, or
-with d-feet:
+Now you can interact with it using the supplied "pd-client" and
+"pd-view" tools, or with d-feet:
   http://live.gnome.org/DFeet/
+or with the "gdbus" tool:
+  gdbus monitor --system --dest org.freedesktop.printerd
 
 Note that currently there is no SELinux policy for printerd so when
 submitting files for printing you will need to enable permissive mode

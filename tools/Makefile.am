@@ -1,4 +1,4 @@
-EXTRA_DIST = printerd-gui.py
+EXTRA_DIST = pd-view.py
 
 AM_CPPFLAGS = \
 	-I$(top_builddir) -I$(top_srcdir)	 		\
