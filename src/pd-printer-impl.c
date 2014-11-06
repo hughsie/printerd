@@ -71,6 +71,11 @@ enum
 
 static void pd_printer_iface_init (PdPrinterIface *iface);
 static void pd_printer_impl_job_state_notify (PdJob *job);
+static void pd_printer_impl_job_add_state_reason (PdJobImpl *job,
+						  const gchar *reason,
+						  PdPrinterImpl *printer);
+static void pd_printer_impl_job_remove_state_reason (PdPrinterImpl *printer,
+						     const gchar *reason);
 
 G_DEFINE_TYPE_WITH_CODE (PdPrinterImpl, pd_printer_impl, PD_TYPE_PRINTER_SKELETON,
 			 G_IMPLEMENT_INTERFACE (PD_TYPE_PRINTER, pd_printer_iface_init));
@@ -93,6 +98,14 @@ pd_printer_impl_remove_job (gpointer data,
 					      pd_printer_impl_job_state_notify,
 					      job);
 
+	g_signal_handlers_disconnect_by_func (job,
+					      pd_printer_impl_job_add_state_reason,
+					      PD_PRINTER_IMPL (user_data));
+
+	g_signal_handlers_disconnect_by_func (job,
+					      pd_printer_impl_job_remove_state_reason,
+					      PD_PRINTER_IMPL (user_data));
+
 	job_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				    pd_job_get_id (job));
 	pd_engine_remove_job (engine, job_path);
@@ -107,7 +120,7 @@ pd_printer_impl_finalize (GObject *object)
 	/* note: we don't hold a reference to printer->daemon */
 	g_ptr_array_foreach (printer->jobs,
 			     pd_printer_impl_remove_job,
-			     NULL);
+			     printer);
 	g_ptr_array_free (printer->jobs, TRUE);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
@@ -353,6 +366,38 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 				 g_variant_ref_sink (value));
 }
 
+void
+pd_printer_impl_add_state_reason (PdPrinterImpl *printer,
+				  const gchar *reason)
+{
+	const gchar *const *reasons;
+	gchar **strv;
+
+	g_debug ("[Printer %s] state-reasons += %s", printer->id, reason);
+
+	reasons = pd_printer_get_state_reasons (PD_PRINTER (printer));
+	strv = add_or_remove_state_reason (reasons, '+', reason);
+	pd_printer_set_state_reasons (PD_PRINTER (printer),
+				      (const gchar *const *) strv);
+	g_strfreev (strv);
+}
+
+void
+pd_printer_impl_remove_state_reason (PdPrinterImpl *printer,
+				     const gchar *reason)
+{
+	const gchar *const *reasons;
+	gchar **strv;
+
+	g_debug ("[Printer %s] state-reasons -= %s", printer->id, reason);
+
+	reasons = pd_printer_get_state_reasons (PD_PRINTER (printer));
+	strv = add_or_remove_state_reason (reasons, '-', reason);
+	pd_printer_set_state_reasons (PD_PRINTER (printer),
+				      (const gchar *const *) strv);
+	g_strfreev (strv);
+}
+
 /**
  * pd_printer_impl_get_uri:
  * @printer: A #PdPrinterImpl.
@@ -523,6 +568,36 @@ pd_printer_impl_job_state_notify (PdJob *job)
 		g_object_unref (printer);
 }
 
+/**
+ * pd_printer_impl_job_add_state_reason
+ * @job: A #PdJob.
+ *
+ * Add a state reason to printer-state-reasons
+ */
+static void
+pd_printer_impl_job_add_state_reason (PdJobImpl *job,
+				      const gchar *reason,
+				      PdPrinterImpl *printer)
+{
+	g_return_if_fail (PD_IS_JOB_IMPL (job));
+	g_return_if_fail (PD_IS_PRINTER_IMPL (printer));
+	pd_printer_impl_add_state_reason (printer, reason);
+}
+
+/**
+ * pd_printer_impl_job_remove_state_reason
+ * @job: A #PdJob.
+ *
+ * Remove a state reason from printer-state-reasons
+ */
+static void
+pd_printer_impl_job_remove_state_reason (PdPrinterImpl *printer,
+					 const gchar *reason)
+{
+	g_return_if_fail (PD_IS_PRINTER_IMPL (printer));
+	pd_printer_impl_remove_state_reason (printer, reason);
+}
+
 static void
 pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				     GDBusMethodInvocation *invocation,
@@ -580,6 +655,16 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 			  "notify::state",
 			  G_CALLBACK (pd_printer_impl_job_state_notify),
 			  job);
+
+	/* Watch for printer-state-reasons updates */
+	g_signal_connect (job,
+			  "add-printer-state-reason",
+			  G_CALLBACK (pd_printer_impl_job_add_state_reason),
+			  printer);
+	g_signal_connect (job,
+			  "remove-printer-state-reason",
+			  G_CALLBACK (pd_printer_impl_job_remove_state_reason),
+			  printer);
 
 	/* Set job-originating-user-name */
 	user = pd_get_unix_user (invocation);

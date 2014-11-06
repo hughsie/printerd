@@ -28,6 +28,8 @@
 #include <unistd.h>
 
 #include <gio/gunixfdlist.h>
+#include <gio/gunixinputstream.h>
+#include <gio/gunixoutputstream.h>
 #include <glib.h>
 #include <glib/gi18n.h>
 #include <glib/gstdio.h>
@@ -101,12 +103,24 @@ enum
 	PROP_DAEMON,
 };
 
+enum
+{
+	ADD_PRINTER_STATE_REASON,
+	REMOVE_PRINTER_STATE_REASON,
+	LAST_SIGNAL
+};
+
+static guint signals[LAST_SIGNAL] = { 0 };
+
 static void pd_job_iface_init (PdJobIface *iface);
 static void pd_job_impl_add_state_reason (PdJobImpl *job,
 					  const gchar *reason);
 static void pd_job_impl_remove_state_reason (PdJobImpl *job,
 					     const gchar *reason);
 static void pd_job_impl_job_state_notify (PdJobImpl *job);
+static void pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
+					       gint job_state,
+					       const gchar *reason);
 static gboolean pd_job_impl_message_io_cb (GIOChannel *channel,
 					   GIOCondition condition,
 					   gpointer data);
@@ -283,6 +297,39 @@ pd_job_impl_class_init (PdJobImplClass *klass)
 							      G_PARAM_CONSTRUCT_ONLY |
 							      G_PARAM_STATIC_STRINGS));
 
+	/**
+	 * PdJobImpl::add-printer-state-reason
+	 *
+	 * This signal is emitted by the #PdJob when a filter chain
+	 * indicates that a printer state reason should be added.
+	 */
+	signals[ADD_PRINTER_STATE_REASON] = g_signal_new ("add-printer-state-reason",
+							  G_OBJECT_CLASS_TYPE (klass),
+							  G_SIGNAL_RUN_LAST,
+							  0, /* G_STRUCT_OFFSET */
+							  NULL, /* accu */
+							  NULL, /* accu data */
+							  g_cclosure_marshal_generic,
+							  G_TYPE_NONE,
+							  1,
+							  G_TYPE_STRING);
+
+	/**
+	 * PdJobImpl::remove-printer-state-reason
+	 *
+	 * This signal is emitted by the #PdJob when a filter chain
+	 * indicates that a printer state reason should be removed.
+	 */
+	signals[REMOVE_PRINTER_STATE_REASON] = g_signal_new ("remove-printer-state-reason",
+							     G_OBJECT_CLASS_TYPE (klass),
+							     G_SIGNAL_RUN_LAST,
+							     0, /* G_STRUCT_OFFSET */
+							     NULL, /* accu */
+							     NULL, /* accu data */
+							     g_cclosure_marshal_generic,
+							     G_TYPE_NONE,
+							     1,
+							     G_TYPE_STRING);
 }
 
 /**
@@ -315,81 +362,39 @@ state_reason_is_set (PdJobImpl *job,
 }
 
 static void
-pd_job_impl_set_state_reasons (PdJobImpl *job,
-			       const gchar *reason,
-			       gchar add_or_remove)
-{
-	const gchar *const *strv_old;
-	gchar **strv_new;
-	guint length;
-	gint i, j;
-
-	strv_old = pd_job_get_state_reasons (PD_JOB (job));
-	length = g_strv_length ((gchar **) strv_old);
-	strv_new = g_malloc0_n (2 + length, sizeof (gchar *));
-	for (i = 0, j = 0; strv_old[i] != NULL; i++) {
-		if (!strcmp (strv_old[i], reason)) {
-			/* Found the state reason */
-			if (add_or_remove == '+')
-				/* Add: nothing to do */
-				break;
-
-			/* Remove: skip it */
-			continue;
-		}
-
-		strv_new[j++] = g_strdup (strv_old[i]);
-	}
-
-	if ((add_or_remove == '+' && strv_old[i] != NULL) ||
-	    (add_or_remove == '-' && i == j))
-		/* Nothing to do. */
-		goto out;
-
-	if (add_or_remove == '+')
-		strv_new[j++] = g_strdup (reason);
-
-	pd_job_set_state_reasons (PD_JOB (job),
-				  (const gchar *const *)strv_new);
-out:
-	g_strfreev (strv_new);
-
-	const gchar *const *strv = pd_job_get_state_reasons (PD_JOB (job));
-	GString *reasons = NULL;
-	const gchar *const *r;
-	for (r = strv; *r != NULL; r++) {
-		if (reasons == NULL) {
-			reasons = g_string_new ("[");
-			g_string_append (reasons, *r);
-		} else
-			g_string_append_printf (reasons, ",%s", *r);
-	}
-
-	if (reasons)
-		g_string_append_c (reasons, ']');
-
-	g_debug ("[Job %u] State reasons %c= %s, now %s",
-		 pd_job_get_id (PD_JOB (job)),
-		 add_or_remove,
-		 reason,
-		 reasons ? reasons->str : "[none]");
-
-	if (reasons)
-		g_string_free (reasons, TRUE);
-}
-
-static void
 pd_job_impl_add_state_reason (PdJobImpl *job,
 			      const gchar *reason)
 {
-	pd_job_impl_set_state_reasons (job, reason, '+');
+	const gchar *const *reasons;
+	gchar **strv;
+
+	g_debug ("[Job %u] state-reasons += %s",
+		 pd_job_get_id (PD_JOB (job)),
+		 reason);
+
+	reasons = pd_job_get_state_reasons (PD_JOB (job));
+	strv = add_or_remove_state_reason (reasons, '+', reason);
+	pd_job_set_state_reasons (PD_JOB (job),
+				  (const gchar *const *) strv);
+	g_strfreev (strv);
 }
 
 static void
 pd_job_impl_remove_state_reason (PdJobImpl *job,
 				 const gchar *reason)
 {
-	pd_job_impl_set_state_reasons (job, reason, '-');
+	const gchar *const *reasons;
+	gchar **strv;
+
+	g_debug ("[Job %u] state-reasons -= %s",
+		 pd_job_get_id (PD_JOB (job)),
+		 reason);
+
+	reasons = pd_job_get_state_reasons (PD_JOB (job));
+	strv = add_or_remove_state_reason (reasons, '-', reason);
+	pd_job_set_state_reasons (PD_JOB (job),
+				  (const gchar *const *) strv);
+	g_strfreev (strv);
 }
 
 static gboolean
@@ -408,9 +413,9 @@ pd_job_impl_check_job_transforming (PdJobImpl *job)
 		    !jp->finished) {
 			/* There is still a filter chain
 			   process running. */
-			g_debug ("[Job %u] PID %u still running",
+			g_debug ("[Job %u] PID %u (%s) still running",
 				 pd_job_get_id (PD_JOB (job)),
-				 jp->pid);
+				 jp->pid, jp->what);
 			break;
 		}
 	}
@@ -435,8 +440,8 @@ pd_job_impl_process_watch_cb (GPid pid,
 	g_spawn_close_pid (pid);
 	jp->finished = TRUE;
 	jp->process_watch_source = 0;
-	g_debug ("[Job %u] PID %d finished with status %d",
-		 job_id, pid, WEXITSTATUS (status));
+	g_debug ("[Job %u] PID %d (%s) finished with status %d",
+		 job_id, pid, jp->what, WEXITSTATUS (status));
 
 	/* Close its input file descriptors */
 	if (jp->io_source[STDIN_FILENO]) {
@@ -510,11 +515,15 @@ pd_job_impl_parse_stderr (PdJobImpl *job,
 
 				/* Process this reason */
 				if (add_or_remove == '+')
-					pd_job_impl_add_state_reason (job,
-								      reason);
+					g_signal_emit (PD_JOB (job),
+						       signals[ADD_PRINTER_STATE_REASON],
+						       0,
+						       reason);
 				else
-					pd_job_impl_remove_state_reason (job,
-									 reason);
+					g_signal_emit (PD_JOB (job),
+						       signals[REMOVE_PRINTER_STATE_REASON],
+						       0,
+						       reason);
 
 				g_free (reason);
 
@@ -589,6 +598,11 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 				   thisjp->what,
 				   error->message);
 			g_error_free (error);
+			pd_job_impl_do_cancel_with_reason (job,
+							   PD_JOB_STATE_ABORTED,
+							   "job-aborted-by-system");
+			g_io_channel_unref (channel);
+			keep_source = FALSE;
 			break;
 
 		case G_IO_STATUS_AGAIN:
@@ -646,9 +660,15 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 			g_warning ("[Job %u] Error writing to %s: %s",
 				   job_id, thisjp->what, error->message);
 			g_error_free (error);
+			pd_job_impl_do_cancel_with_reason (job,
+							   PD_JOB_STATE_ABORTED,
+							   "job-aborted-by-system");
 			goto out;
 		case G_IO_STATUS_EOF:
 			g_debug ("[Job %u] EOF on write?", job_id);
+			pd_job_impl_do_cancel_with_reason (job,
+							   PD_JOB_STATE_ABORTED,
+							   "job-canceled-by-system");
 			break;
 		case G_IO_STATUS_AGAIN:
 			g_debug ("[Job %u] Resource temporarily unavailable",
@@ -695,9 +715,16 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 	GIOStatus status;
 	gchar *line = NULL;
 	gsize got;
-	gint i;
+	gint thisfd;
 
 	g_assert (condition & (G_IO_IN | G_IO_HUP));
+
+	if (channel == jp->channel[STDERR_FILENO])
+		thisfd = STDERR_FILENO;
+	else {
+		g_assert (channel == jp->channel[STDOUT_FILENO]);
+		thisfd = STDOUT_FILENO;
+	}
 
 	while ((status = g_io_channel_read_line (channel,
 						 &line,
@@ -705,19 +732,16 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 						 NULL,
 						 &error)) ==
 	       G_IO_STATUS_NORMAL) {
-		if (channel == jp->channel[STDERR_FILENO]) {
+		if (thisfd == STDERR_FILENO) {
 			g_debug ("[Job %u] %s: %s",
 				 job_id, jp->what,
 				 g_strchomp (line));
 			pd_job_impl_parse_stderr (job, line);
 		}
-		else {
-			g_assert (channel == jp->channel[STDOUT_FILENO] &&
-				  jp == &job->backend);
+		else
 			g_debug ("[Job %u] backend(stdout): %s",
 				 job_id,
 				 g_strchomp (line));
-		}
 	}
 
 	switch (status) {
@@ -725,18 +749,15 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 		g_warning ("[Job %u] Error reading from channel: %s",
 			   job_id, error->message);
 		g_error_free (error);
+		g_io_channel_unref (channel);
+		keep_source = FALSE;
+		pd_job_impl_add_state_reason (job, "job-canceled-by-system");
+		pd_job_set_state (PD_JOB (job), PD_JOB_STATE_CANCELED);
 		goto out;
 	case G_IO_STATUS_EOF:
 		g_io_channel_unref (channel);
-		for (i = 0; i < PD_FD_MAX; i++)
-			if (channel == jp->channel[i])
-				break;
-
-		g_assert (i < PD_FD_MAX);
 		g_debug ("[Job %u] %s fd %d closed",
-			 job_id, jp->what, i);
-		jp->channel[i] = NULL;
-		jp->io_source[i] = 0;
+			 job_id, jp->what, thisfd);
 		keep_source = FALSE;
 		break;
 	case G_IO_STATUS_AGAIN:
@@ -745,6 +766,11 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 	case G_IO_STATUS_NORMAL:
 		g_assert_not_reached ();
 		break;
+	}
+
+	if (!keep_source) {
+		jp->channel[thisfd] = NULL;
+		jp->io_source[thisfd] = 0;
 	}
 
  out:
@@ -762,8 +788,8 @@ pd_job_impl_create_pipe_for (PdJobImpl *job,
 	gint pipe_fd[2];
 
 	if (pipe (pipe_fd) != 0) {
-		g_error ("[Job %u] Failed to create pipe: %s",
-			 pd_job_get_id (PD_JOB (job)), g_strerror (errno));
+		g_warning ("[Job %u] Failed to create pipe: %s",
+			   pd_job_get_id (PD_JOB (job)), g_strerror (errno));
 		return FALSE;
 	}
 
@@ -813,9 +839,11 @@ get_attribute_value (PdJob *job,
 
 	attributes = pd_job_get_attributes (PD_JOB (job));
 	g_variant_iter_init (&iter, attributes);
-	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-		if (!strcmp (dkey, key))
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue))
+		if (!strcmp (dkey, key)) {
+			g_free (dkey);
 			return dvalue;
+		}
 
 	return NULL;
 }
@@ -828,7 +856,12 @@ pd_job_impl_run_process (PdJobImpl *job,
 	gboolean ret = FALSE;
 	guint job_id = pd_job_get_id (PD_JOB (job));
 	gchar *username;
+	GString *options = NULL;
+	GVariant *attributes;
 	GVariant *variant;
+	GVariantIter iter;
+	gchar *dkey;
+	GVariant *dvalue;
 	const gchar *uri;
 	char **argv = NULL;
 	char **envp = NULL;
@@ -841,9 +874,31 @@ pd_job_impl_run_process (PdJobImpl *job,
 				       "job-originating-user-name");
 	if (variant) {
 		username = g_variant_dup_string (variant, NULL);
-		/* no need to free variant: we don't own a reference */
+		g_variant_unref (variant);
 	} else
 		username = g_strdup ("unknown");
+
+	attributes = pd_job_get_attributes (PD_JOB (job));
+	g_variant_iter_init (&iter, attributes);
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue)) {
+		gchar *val;
+
+		if (g_variant_is_of_type (dvalue, G_VARIANT_TYPE_STRING))
+			val = g_variant_dup_string (dvalue, NULL);
+		else
+			val = g_variant_print (dvalue, FALSE);
+
+		if (options == NULL) {
+			options = g_string_new ("");
+			g_string_printf (options, "%s=%s", dkey, val);
+		} else
+			g_string_append_printf (options, " %s=%s", dkey, val);
+
+		g_free (val);
+	}
+
+	if (options == NULL)
+		options = g_string_new ("");
 
 	argv = g_malloc0 (sizeof (char *) * 8);
 	argv[0] = g_strdup (jp->cmd);
@@ -858,7 +913,8 @@ pd_job_impl_run_process (PdJobImpl *job,
 	/* Copies */
 	argv[5] = g_strdup ("1");
 	/* Options */
-	argv[6] = g_strdup ("");
+	argv[6] = options->str;
+	g_string_free (options, FALSE);
 	argv[7] = NULL;
 
 	envp = g_malloc0 (sizeof (char *) * 2);
@@ -908,6 +964,12 @@ pd_job_impl_run_process (PdJobImpl *job,
 					NULL);
 		g_io_channel_set_close_on_unref (channel,
 						 TRUE);
+
+		/* Set the data channels up for binary data. */
+		if ((jp == &job->backend && i < 1) ||
+		    (jp != &job->backend && i < 2))
+			g_io_channel_set_encoding (channel, NULL, NULL);
+
 		jp->channel[i] = channel;
 	}
 
@@ -964,8 +1026,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	/* Open document */
 	document_fd = open (job->document_filename, O_RDONLY);
 	if (document_fd == -1) {
-		g_error ("[Job %u] Failed to open spool file %s: %s",
-			 job_id, job->document_filename, g_strerror (errno));
+		g_warning ("[Job %u] Failed to open spool file %s: %s",
+			   job_id, job->document_filename, g_strerror (errno));
 		goto fail;
 	}
 
@@ -976,7 +1038,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	/* Set up the arranger */
 	jp = g_malloc0 (sizeof (struct _PdJobProcess));
 	pd_job_impl_init_jp (job, jp);
-	jp->cmd = g_strdup ("/usr/lib/cups/filter/pstops");
+	jp->cmd = g_strdup ("/usr/lib/cups/filter/pdftopdf");
 	jp->what = "arranger";
 
 	/* Set up a pipe to read the backend's stdout */
@@ -1014,8 +1076,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	/* Connect the back-channel between backend and filter-chain */
 	if (pipe (pipe_fd) != 0) {
-		g_error ("[Job %u] Failed to create pipe: %s",
-			 job_id, g_strerror (errno));
+		g_warning ("[Job %u] Failed to create pipe: %s",
+			   job_id, g_strerror (errno));
 		goto fail;
 	}
 
@@ -1029,8 +1091,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	/* Connect the side-channel between filter-chain and backend */
 	if (socketpair (AF_LOCAL, SOCK_STREAM, 0, pipe_fd) != 0) {
-		g_error ("[Job %u] Failed to create socket pair: %s",
-			 job_id, g_strerror (errno));
+		g_warning ("[Job %u] Failed to create socket pair: %s",
+			   job_id, g_strerror (errno));
 		goto fail;
 	}
 
@@ -1049,8 +1111,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
 		if (!pd_job_impl_run_process (job, jp, &error)) {
-			g_error ("[Job %u] Running %s: %s",
-				 job_id, jp->what, error->message);
+			g_warning ("[Job %u] Running %s: %s",
+				   job_id, jp->what, error->message);
 			g_error_free (error);
 			goto fail;
 		}
@@ -1113,8 +1175,8 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	/* Run backend */
 	pd_job_impl_add_state_reason (job, "job-outgoing");
 	if (!pd_job_impl_run_process (job, &job->backend, &error)) {
-		g_error ("[Job %u] Running backend: %s",
-			 job_id, error->message);
+		g_warning ("[Job %u] Running backend: %s",
+			   job_id, error->message);
 		g_error_free (error);
 
 		/* Update job state */
@@ -1256,8 +1318,10 @@ pd_job_impl_add_document (PdJob *_job,
 	/* Check if this user owns the job */
 	attr_user = get_attribute_value (PD_JOB (job),
 					 "job-originating-user-name");
-	if (attr_user)
+	if (attr_user) {
 		originating_user = g_variant_get_string (attr_user, NULL);
+		g_variant_unref (attr_user);
+	}
 	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
 		g_debug ("[Job %u] AddDocument: denied "
@@ -1282,7 +1346,7 @@ pd_job_impl_add_document (PdJob *_job,
 
 	g_debug ("[Job %u] Adding document", job_id);
 	if (fd_list == NULL || g_unix_fd_list_get_length (fd_list) != 1) {
-		g_error ("[Job %u] Bad AddDocument call", job_id);
+		g_warning ("[Job %u] Bad AddDocument call", job_id);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
@@ -1322,10 +1386,9 @@ pd_job_impl_start (PdJob *_job,
 	guint job_id = pd_job_get_id (PD_JOB (job));
 	gchar *name_used = NULL;
 	GError *error = NULL;
-	gint infd = -1;
-	gint spoolfd = -1;
-	char buffer[1024];
-	ssize_t got, wrote;
+	GInputStream *input = NULL;
+	GOutputStream *output = NULL;
+	gint spoolfd;
 	GVariant *attr_user;
 	gchar *requesting_user = NULL;
 	const gchar *originating_user = NULL;
@@ -1341,8 +1404,10 @@ pd_job_impl_start (PdJob *_job,
 	/* Check if this user owns the job */
 	attr_user = get_attribute_value (PD_JOB (job),
 					 "job-originating-user-name");
-	if (attr_user)
+	if (attr_user) {
 		originating_user = g_variant_get_string (attr_user, NULL);
+		g_variant_unref (attr_user);
+	}
 	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
 		g_debug ("[Job %u] AddDocument: denied "
@@ -1383,43 +1448,25 @@ pd_job_impl_start (PdJob *_job,
 
 	g_debug ("[Job %u] Spooling", job_id);
 	g_debug ("[Job %u]   Created temporary file %s", job_id, name_used);
-	infd = job->document_fd;
+
+	input = g_unix_input_stream_new (job->document_fd,
+					 TRUE /* close_fd */);
+	output = g_unix_output_stream_new (spoolfd,
+					   TRUE /* close_fd */);
 	job->document_fd = -1;
 
-	for (;;) {
-		char *ptr;
-		got = read (infd, buffer, sizeof (buffer));
-		if (got == 0)
-			/* end of file */
-			break;
-		else if (got < 0) {
-			/* error */
-			g_dbus_method_invocation_return_error (invocation,
-							       PD_ERROR,
-							       PD_ERROR_FAILED,
-							       "Error reading file");
-			goto out;
-		}
+	if (g_output_stream_splice (output,
+				    input,
+				    G_OUTPUT_STREAM_SPLICE_NONE,
+				    NULL, /* cancellable */
+				    &error) == -1)
+		goto fail;
 
-		ptr = buffer;
-		while (got > 0) {
-			wrote = write (spoolfd, ptr, got);
-			if (wrote == -1) {
-				if (errno == EINTR)
-					continue;
-				else {
-					g_dbus_method_invocation_return_error (invocation,
-									       PD_ERROR,
-									       PD_ERROR_FAILED,
-									       "Error writing file");
-					goto out;
-				}
-			}
+	if (g_output_stream_close (output, NULL, &error) == -1)
+		goto fail;
 
-			ptr += wrote;
-			got -= wrote;
-		}
-	}
+	if (!g_input_stream_close (input, NULL, &error))
+		goto fail;
 
 	/* Job is no longer incoming so remove that state reason if
 	   present */
@@ -1436,53 +1483,34 @@ pd_job_impl_start (PdJob *_job,
 
  out:
 	g_free (requesting_user);
-	if (infd != -1)
-		close (infd);
-	if (spoolfd != -1)
-		close (spoolfd);
+	if (input)
+		g_object_unref (input);
+	if (output)
+		g_object_unref (output);
 	g_free (name_used);
 	return TRUE; /* handled the method invocation */
+
+fail:
+	/* error */
+	g_dbus_method_invocation_return_error (invocation,
+					       PD_ERROR,
+					       PD_ERROR_FAILED,
+					       "Error spooling file");
+	goto out;
+
 }
 
-/* runs in thread dedicated to handling @invocation */
-static gboolean
-pd_job_impl_cancel (PdJob *_job,
-		    GDBusMethodInvocation *invocation,
-		    GVariant *options)
+/* Cancel or abort job */
+static void
+pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
+				   gint job_state,
+				   const gchar *reason)
 {
-	PdJobImpl *job = PD_JOB_IMPL (_job);
-	guint job_id = pd_job_get_id (PD_JOB (job));
-	GVariant *attr_user;
-	gchar *requesting_user = NULL;
-	const gchar *originating_user = NULL;
+	PdJob *_job = PD_JOB (job);
+	guint job_id = pd_job_get_id (_job);
 	GList *filter;
 
-	/* Check if the user is authorized to cancel this job */
-	if (!pd_daemon_check_authorization_sync (job->daemon,
-						 "org.freedesktop.printerd.job-cancel",
-						 options,
-						 N_("Authentication is required to cancel a job"),
-						 invocation))
-		goto out;
-
-	/* Check if this user owns the job */
-	attr_user = get_attribute_value (PD_JOB (job),
-					 "job-originating-user-name");
-	if (attr_user)
-		originating_user = g_variant_get_string (attr_user, NULL);
-	requesting_user = pd_get_unix_user (invocation);
-	if (g_strcmp0 (originating_user, requesting_user)) {
-		g_debug ("[Job %u] AddDocument: denied "
-			 "[originating user: %s; requesting user: %s]",
-			 job_id, originating_user, requesting_user);
-		g_dbus_method_invocation_return_error (invocation,
-						       PD_ERROR,
-						       PD_ERROR_FAILED,
-						       N_("Not job owner"));
-		goto out;
-	}
-
-	pd_job_impl_add_state_reason (job, "job-canceled-by-user");
+	pd_job_impl_add_state_reason (PD_JOB_IMPL (job), reason);
 
         /* RFC 2911, 3.3.3: only these jobs in these states can be
 	   canceled */
@@ -1492,12 +1520,11 @@ pd_job_impl_cancel (PdJob *_job,
 		/* These can be canceled right away. */
 
 		/* Change job state. */
-		g_debug ("[Job %u] Canceled", job_id);
-		pd_job_set_state (_job, PD_JOB_STATE_CANCELED);
+		g_debug ("[Job %u] Pending job set to state %s",
+			 job_id, pd_job_state_as_string (job_state));
+		pd_job_set_state (_job, job_state);
 
-		/* Return success */
-		g_dbus_method_invocation_return_value (invocation,
-						       g_variant_new ("()"));
+		/* Nothing else to do */
 		break;
 
 	case PD_JOB_STATE_PROCESSING:
@@ -1508,21 +1535,16 @@ pd_job_impl_cancel (PdJob *_job,
 		if (!pd_job_impl_check_job_transforming (job) &&
 		    !job->backend.started) {
 			/* Already finished */
-			g_debug ("[Job %u] Canceled after transformation",
+			g_debug ("[Job %u] Stopped after transformation",
 				 job_id);
-			pd_job_set_state (_job, PD_JOB_STATE_CANCELED);
-			goto done;
+			pd_job_set_state (_job, job_state);
+			break;
 		}
 
-		if (state_reason_is_set (job, "processing-to-stop-point")) {
-			g_dbus_method_invocation_return_error (invocation,
-							       PD_ERROR,
-							       PD_ERROR_FAILED,
-							       N_("Already canceled"));
-			goto out;
-		}
+		if (state_reason_is_set (job, "processing-to-stop-point"))
+			break;
 
-		job->pending_job_state = PD_JOB_STATE_CANCELED;
+		job->pending_job_state = job_state;
 		pd_job_impl_add_state_reason (job, "processing-to-stop-point");
 
 		if (job->backend.channel[STDIN_FILENO] != NULL) {
@@ -1566,7 +1588,83 @@ pd_job_impl_cancel (PdJob *_job,
 			g_spawn_close_pid (job->backend.pid);
 		}
 
-	done:
+		break;
+
+	default: /* only completed job states remaining */
+		break;
+		;
+	}
+}
+
+/* runs in thread dedicated to handling @invocation */
+static gboolean
+pd_job_impl_cancel (PdJob *_job,
+		    GDBusMethodInvocation *invocation,
+		    GVariant *options)
+{
+	PdJobImpl *job = PD_JOB_IMPL (_job);
+	guint job_id = pd_job_get_id (PD_JOB (job));
+	GVariant *attr_user;
+	gchar *requesting_user = NULL;
+	const gchar *originating_user = NULL;
+
+	/* Check if the user is authorized to cancel this job */
+	if (!pd_daemon_check_authorization_sync (job->daemon,
+						 "org.freedesktop.printerd.job-cancel",
+						 options,
+						 N_("Authentication is required to cancel a job"),
+						 invocation))
+		goto out;
+
+	/* Check if this user owns the job */
+	attr_user = get_attribute_value (PD_JOB (job),
+					 "job-originating-user-name");
+	if (attr_user) {
+		originating_user = g_variant_get_string (attr_user, NULL);
+		g_variant_unref (attr_user);
+	}
+	requesting_user = pd_get_unix_user (invocation);
+	if (g_strcmp0 (originating_user, requesting_user)) {
+		g_debug ("[Job %u] AddDocument: denied "
+			 "[originating user: %s; requesting user: %s]",
+			 job_id, originating_user, requesting_user);
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Not job owner"));
+		goto out;
+	}
+
+	switch (pd_job_get_state (_job)) {
+	case PD_JOB_STATE_PENDING:
+	case PD_JOB_STATE_PENDING_HELD:
+		/* These can be canceled right away. */
+		g_debug ("[Job %u] Canceled by user", job_id);
+		goto cancel;
+		break;
+
+	case PD_JOB_STATE_PROCESSING:
+	case PD_JOB_STATE_PROCESSING_STOPPED:
+		/* These need some time to tell the printer to
+		   e.g. eject the current page */
+
+		if (!pd_job_impl_check_job_transforming (job) &&
+		    !job->backend.started)
+			goto cancel;
+
+		if (state_reason_is_set (job, "processing-to-stop-point")) {
+			g_dbus_method_invocation_return_error (invocation,
+							       PD_ERROR,
+							       PD_ERROR_FAILED,
+							       N_("Already canceled"));
+			break;
+		}
+
+	cancel:
+		/* Now cancel the job. */
+		pd_job_impl_do_cancel_with_reason (job,
+						   PD_JOB_STATE_CANCELED,
+						   "job-canceled-by-user");
 		g_dbus_method_invocation_return_value (invocation,
 						       g_variant_new ("()"));
 		break;

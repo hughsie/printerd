@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2012 Tim Waugh <twaugh@redhat.com>
+ * Copyright (C) 2012, 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -201,4 +201,45 @@ pd_get_unix_user (GDBusMethodInvocation *invocation)
 		ret = g_strdup (":unknown:");
 
 	return ret;
+}
+
+gchar **
+add_or_remove_state_reason (const gchar *const *reasons,
+			    gchar add_or_remove,
+			    const gchar *reason)
+{
+	gchar **strv;
+	guint length;
+	gint i, j;
+
+	if (reasons == NULL)
+		length = 0;
+	else
+		length = g_strv_length ((gchar **) reasons);
+
+	strv = g_malloc0_n (2 + length, sizeof (gchar *));
+	for (i = 0, j = 0; reasons != NULL && reasons[i] != NULL; i++) {
+		if (!g_strcmp0 (reasons[i], reason)) {
+			/* Found the state reason */
+			if (add_or_remove == '+')
+				/* Add: nothing to do */
+				break;
+
+			/* Remove: skip it */
+			continue;
+		}
+
+		strv[j++] = g_strdup (reasons[i]);
+	}
+
+	if ((add_or_remove == '+' && reasons != NULL && reasons[i] != NULL) ||
+	    (add_or_remove == '-' && i == j))
+		/* Nothing to do. */
+		goto out;
+
+	if (add_or_remove == '+')
+		strv[j++] = g_strdup (reason);
+
+out:
+	return strv;
 }
