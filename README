@@ -39,3 +39,6 @@ The core IPP concepts are used for job and printer states, state
 reasons, and so on.  The plan is that an IPP server could be built
 out-of-process, which would be a client for the printerd D-Bus
 interface.
+
+Translations can be submitted at Transifex:
+  https://www.transifex.com/projects/p/printerd/
