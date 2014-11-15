@@ -109,6 +109,7 @@ pd_printer_impl_remove_job (gpointer data,
 	job_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				    pd_job_get_id (job));
 	pd_engine_remove_job (engine, job_path);
+	g_free (job_path);
 }
 
 static void
@@ -122,6 +123,7 @@ pd_printer_impl_finalize (GObject *object)
 			     pd_printer_impl_remove_job,
 			     printer);
 	g_ptr_array_free (printer->jobs, TRUE);
+	g_free (printer->id);
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -184,18 +186,16 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 
 	/* set initial job template attributes */
 	g_variant_builder_add (&builder, "{sv}",
-			       g_strdup ("media"),
-			       g_variant_ref_sink (g_variant_new ("s",
-								  "iso-a4")));
+			       "media",
+			       g_variant_new ("s", "iso-a4"));
 
 	/* set initial printer description attributes */
 	g_variant_builder_add (&builder, "{sv}",
-			       g_strdup ("document-format"),
-			       g_variant_ref_sink (g_variant_new ("s",
-								  "application-pdf")));
+			       "document-format",
+			       g_variant_new ("s", "application-pdf"));
 
 	pd_printer_set_defaults (PD_PRINTER (printer),
-				 g_variant_ref_sink (g_variant_builder_end (&builder)));
+				 g_variant_builder_end (&builder));
 
 	/* Supported values */
 
@@ -206,17 +206,17 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 	g_variant_builder_add (&val_builder, "s", "iso-a4");
 	g_variant_builder_add (&val_builder, "s", "na-letter");
 	g_variant_builder_add (&builder, "{sv}",
-			       g_strdup ("media"),
+			       "media",
 			       g_variant_builder_end (&val_builder));
 
 	g_variant_builder_init (&val_builder, G_VARIANT_TYPE ("as"));
 	g_variant_builder_add (&val_builder, "s", "application/pdf");
 	g_variant_builder_add (&builder, "{sv}",
-			       g_strdup ("document-format"),
+			       "document-format",
 			       g_variant_builder_end (&val_builder));
 
 	pd_printer_set_supported (PD_PRINTER (printer),
-				  g_variant_ref_sink (g_variant_builder_end (&builder)));
+				  g_variant_builder_end (&builder));
 
 	/* Array of jobs */
 	printer->jobs = g_ptr_array_new_full (0,
@@ -322,19 +322,15 @@ update_attributes (GVariant *attributes, GVariant *updates)
 	/* Add any values from attributes that are not in updates */
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("a{sv}"));
 	g_variant_iter_init (&iter, attributes);
-	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue)) {
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue))
 		if (!g_variant_lookup_value (updates, dkey, NULL))
 			g_variant_builder_add (&builder, "{sv}",
-					       g_strdup (dkey),
-					       g_variant_ref (dvalue));
-	}
+					       dkey, dvalue);
 
 	/* Now add in the updates */
 	g_variant_iter_init (&iter, updates);
-	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
-		g_variant_builder_add (&builder, "{sv}",
-				       g_strdup (dkey),
-				       g_variant_ref (dvalue));
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue))
+		g_variant_builder_add (&builder, "{sv}", dkey, dvalue);
 
 	return g_variant_builder_end (&builder);
 }
@@ -352,18 +348,16 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 
 	/* add/overwrite default values, keeping other existing values */
 	g_variant_iter_init (&iter, defaults);
-	while (g_variant_iter_next (&iter, "{sv}", &key, &value)) {
+	while (g_variant_iter_loop (&iter, "{sv}", &key, &value)) {
 		gchar *val = g_variant_print (value, TRUE);
 		g_debug ("[Printer %s] Defaults: set %s=%s",
 			 printer->id, key, val);
-		g_free (val);
 	}
 
 	current_defaults = pd_printer_get_defaults (PD_PRINTER (printer));
 	value = update_attributes (current_defaults,
 				   defaults);
-	pd_printer_set_defaults (PD_PRINTER (printer),
-				 g_variant_ref_sink (value));
+	pd_printer_set_defaults (PD_PRINTER (printer), value);
 }
 
 void
@@ -625,7 +619,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	/* Check for unsupported attributes */
 	g_variant_builder_init (&unsupported, G_VARIANT_TYPE ("a{sv}"));
 	g_variant_iter_init (&iter, attributes);
-	while (g_variant_iter_next (&iter, "{sv}", &dkey, &dvalue))
+	while (g_variant_iter_loop (&iter, "{sv}", &dkey, &dvalue))
 		/* Is there a list of supported values? */
 		if (!attribute_value_is_supported (printer, dkey, dvalue)) {
 			gchar *val = g_variant_print (dvalue, TRUE);
@@ -633,8 +627,8 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 				 printer->id, dkey, val);
 			g_free (val);
 			g_variant_builder_add (&unsupported, "{sv}",
-					       g_strdup (dkey),
-					       g_variant_ref (dvalue));
+					       dkey,
+					       dvalue);
 		}
 
 	/* Tell the engine to create the job */
@@ -645,7 +639,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	job = pd_engine_add_job (pd_daemon_get_engine (printer->daemon),
 				 printer_path,
 				 name,
-				 g_variant_ref_sink (job_attributes));
+				 job_attributes);
 
 	/* Store the job in our array */
 	g_ptr_array_add (printer->jobs, (gpointer) job);
@@ -677,7 +671,6 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       pd_job_get_id (job));
 	g_debug ("[Printer %s] Job path is %s", printer->id, object_path);
-	g_variant_builder_init (&unsupported, G_VARIANT_TYPE ("a{sv}"));
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_new ("(o@a{sv})",
 							      object_path,

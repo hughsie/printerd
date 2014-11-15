@@ -56,6 +56,10 @@ enum
 	PROP_DAEMON
 };
 
+static void on_uevent (GUdevClient *client,
+		       const gchar *action,
+		       GUdevDevice *udevdevice,
+		       gpointer user_data);
 static void pd_engine_printer_state_notify (PdPrinter *printer);
 static void pd_engine_job_state_reasons_notify (PdJob *printer);
 
@@ -82,6 +86,15 @@ pd_engine_dispose (GObject *object)
 	if (engine->priv->id_to_handle) {
 		g_hash_table_unref (engine->priv->id_to_handle);
 		engine->priv->id_to_handle = NULL;
+	}
+
+	if (engine->priv->gudev_client) {
+		g_signal_handlers_disconnect_by_func (engine->priv->gudev_client,
+						      on_uevent,
+						      engine);
+
+		g_object_unref (engine->priv->gudev_client);
+		engine->priv->gudev_client = NULL;
 	}
 
 	if (G_OBJECT_CLASS (pd_engine_parent_class)->dispose != NULL)
@@ -546,6 +559,8 @@ pd_engine_start	(PdEngine *engine)
 	for (l = devices; l != NULL; l = l->next)
 		pd_engine_handle_uevent (engine, "add", G_UDEV_DEVICE (l->data));
 
+	g_list_foreach (devices, (GFunc) g_object_unref, NULL);
+	g_list_free (devices);
 	g_object_unref (manager);
 }
 

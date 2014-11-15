@@ -51,8 +51,10 @@ pd_parse_ieee1284_id (const gchar *idstring)
 	for (each = fvs; *each; each++) {
 		gchar *fieldname;
 		gchar **fv = g_strsplit (*each, ":", 2);
-		if (fv[0] == NULL || fv[1] == NULL)
+		if (fv[0] == NULL || fv[1] == NULL) {
+			g_strfreev (fv);
 			continue;
+		}
 
 		g_strstrip (fv[0]);
 		g_strstrip (fv[1]);
