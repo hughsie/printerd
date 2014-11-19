@@ -1,4 +1,4 @@
-/* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
+/* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-file-style: "gnu" -*-
  *
  * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
  *
@@ -30,6 +30,7 @@
 
 static gboolean opt_no_sigint = FALSE;
 static gboolean opt_replace = FALSE;
+static gboolean opt_session = FALSE;
 static GMainLoop *loop = NULL;
 static PdDaemon *the_daemon = NULL;
 
@@ -38,8 +39,8 @@ on_bus_acquired (GDBusConnection *connection,
 		 const gchar *name,
 		 gpointer user_data)
 {
-	the_daemon = pd_daemon_new (connection);
-	g_debug ("Connected to the system bus");
+	the_daemon = pd_daemon_new (connection, opt_session);
+	g_debug ("Connected to the %s bus", opt_session ? "session" : "system");
 }
 
 static void
@@ -48,9 +49,12 @@ on_name_lost (GDBusConnection *connection,
 	      gpointer user_data)
 {
 	if (the_daemon == NULL)
-		g_error ("Failed to connect to the system message bus");
+		g_error ("Failed to connect to the %s message bus",
+		   opt_session ? "session" : "system");
 	else
-		g_debug ("Lost (or failed to acquire) the name %s on the system message bus", name);
+		g_debug ("Lost (or failed to acquire) the name %s on the "
+			 "%s message bus",
+			 name, opt_session ? "session" : "system");
 	g_main_loop_quit (loop);
 }
 
@@ -59,7 +63,8 @@ on_name_acquired (GDBusConnection *connection,
 		  const gchar *name,
 		  gpointer user_data)
 {
-	g_debug ("Acquired the name %s on the system message bus", name);
+	g_debug ("Acquired the name %s on the %s message bus", name,
+		 opt_session ? "session" : "system");
 }
 
 static gboolean
@@ -121,6 +126,8 @@ main (int argc, char **argv)
 			"Replace existing daemon", NULL},
 		{ "no-sigint", 's', 0, G_OPTION_ARG_NONE, &opt_no_sigint,
 			"Do not handle SIGINT for controlled shutdown", NULL},
+		{ "session", 'S', 0, G_OPTION_ARG_NONE, &opt_session,
+			_("Use the session D-Bus (for testing)"), NULL},
 		{NULL }
 	};
 
@@ -163,7 +170,8 @@ main (int argc, char **argv)
 						    NULL); /* GDestroyNotify */
 	}
 
-	name_owner_id = g_bus_own_name (G_BUS_TYPE_SYSTEM,
+	name_owner_id = g_bus_own_name (opt_session ?
+					G_BUS_TYPE_SESSION : G_BUS_TYPE_SYSTEM,
 					"org.freedesktop.printerd",
 					G_BUS_NAME_OWNER_FLAGS_ALLOW_REPLACEMENT |
 						(opt_replace ? G_BUS_NAME_OWNER_FLAGS_REPLACE : 0),
