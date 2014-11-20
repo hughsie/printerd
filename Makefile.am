@@ -8,6 +8,11 @@ SUBDIRS = 						\
 	tools						\
 	po
 
+DISTCLEANFILES = \
+	printerd-session.log \
+	printerd-session.pid \
+	printerd-session.bus
+
 MAINTAINERCLEANFILES =					\
 	$(srcdir)/INSTALL				\
 	$(srcdir)/ABOUT-NLS				\
@@ -41,6 +46,22 @@ distclean-local:
 		rm -f ChangeLog; \
 	fi
 
+# Regression tests
+TESTS_ENVIRONMENT = top_srcdir=$(top_srcdir) top_builddir=$(top_builddir)
+TESTS = \
+	tests/version/run-test \
+	tests/stop-session-service/run-test
+
+XFAIL_TESTS =
+
+printerd-session.pid: all .FORCE
+	bash $(top_srcdir)/tests/start-session-service.sh
+
+tests/version/run-test: printerd-session.pid
+	for test in $(TESTS); do \
+		chmod a+x $(top_srcdir)/$$test; \
+	done
+
 ChangeLog:
 	@echo Creating $@
 	@if test -d "$(srcdir)/.git"; then \
@@ -56,5 +77,10 @@ ChangeLog:
 	fi
 
 .PHONY: ChangeLog
+.FORCE:
+
+EXTRA_DIST = \
+	tests/common.sh tests/start-session-service.sh \
+	$(TESTS) $(XFAIL_TESTS)
 
 -include $(top_srcdir)/git.mk
