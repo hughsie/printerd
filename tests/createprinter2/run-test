@@ -1,0 +1,66 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+# Create a printer.
+printf "CreatePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.CreatePrinter \
+	       "{}" \
+	       "create-printer2" \
+	       "printer description" \
+	       "printer location" \
+	       '["ipp://remote:631/printers/remote"]' \
+	       "{}")
+
+objpath=$(printf "%s" "$result" | sed -ne "s:^(objectpath '\(.*\)',):\1:p")
+if [ -z "$objpath" ]; then
+    printf "Expected (objectpath): %s\n" "$result"
+    result_is 1
+fi
+
+# Now call SetDeviceUris
+printf "SetDeviceUris\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path "$objpath" \
+	       --method $PD_IFACE.Printer.SetDeviceUris \
+	       '["ipp://remote1:631/dest1","ipp://remote2:631/dest2"]')
+
+if [ "$result" != "()" ]; then
+    printf "Expected (): %s\n" "$result"
+    result_is 1
+fi
+
+# Verify it worked.
+printf "Examining %s\n" "$objpath"
+if ! diff -u - <(gdbus introspect --session --only-properties \
+		       --dest $PD_DEST \
+		       --object-path "$objpath" | \
+			grep ' DeviceUris = ' | \
+			sed -e 's,^ *readonly ,,') << "EOF"
+as DeviceUris = ['ipp://remote1:631/dest1', 'ipp://remote2:631/dest2'];
+EOF
+then
+  printf "DeviceUris property differs from expected\n"
+  result_is 1
+fi
+
+EOF
+# Now delete it.
+printf "DeletePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.DeletePrinter \
+	       "{}" \
+	       "$objpath")
+
+if [ "$result" != "()" ]; then
+    printf "Expected (): %s\n" "$result"
+    result_is 1
+fi
+
+result_is 0
