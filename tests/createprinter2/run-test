@@ -48,7 +48,6 @@ then
   result_is 1
 fi
 
-EOF
 # Now delete it.
 printf "DeletePrinter\n"
 result=$(gdbus call --session \
