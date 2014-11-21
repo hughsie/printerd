@@ -336,8 +336,8 @@ update_attributes (GVariant *attributes, GVariant *updates)
 }
 
 void
-pd_printer_impl_update_defaults (PdPrinterImpl *printer,
-				 GVariant *defaults)
+pd_printer_impl_do_update_defaults (PdPrinterImpl *printer,
+				    GVariant *defaults)
 {
 	GVariantIter iter;
 	GVariant *current_defaults;
@@ -358,6 +358,38 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 	value = update_attributes (current_defaults,
 				   defaults);
 	pd_printer_set_defaults (PD_PRINTER (printer), value);
+}
+
+static void
+pd_printer_impl_complete_update_defaults (PdPrinter *_printer,
+					  GDBusMethodInvocation *invocation,
+					  GVariant *arg_defaults)
+{
+	pd_printer_impl_do_update_defaults (PD_PRINTER_IMPL (_printer),
+					    arg_defaults);
+	g_dbus_method_invocation_return_value (invocation, NULL);
+}
+
+static gboolean
+pd_printer_impl_update_defaults (PdPrinter *_printer,
+				 GDBusMethodInvocation *invocation,
+				 GVariant *arg_defaults)
+{
+	PdPrinterImpl *printer = PD_PRINTER_IMPL (_printer);
+
+	/* Check if the user is authorized to do this */
+	if (!pd_daemon_check_authorization_sync (printer->daemon,
+						 "org.freedesktop.printerd.printer-modify",
+						 NULL,
+						 N_("Authentication is required to modify a printer"),
+						 invocation))
+		goto out;
+
+	pd_printer_impl_complete_update_defaults (_printer,
+						  invocation,
+						  arg_defaults);
+out:
+	return TRUE; /* handled the method invocation */
 }
 
 void
@@ -713,5 +745,6 @@ static void
 pd_printer_iface_init (PdPrinterIface *iface)
 {
 	iface->handle_set_device_uris = pd_printer_impl_set_device_uris;
+	iface->handle_update_defaults = pd_printer_impl_update_defaults;
 	iface->handle_create_job = pd_printer_impl_create_job;
 }
