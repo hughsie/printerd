@@ -51,8 +51,8 @@ PdDaemon	*pd_printer_impl_get_daemon	(PdPrinterImpl	*printer);
 const gchar	*pd_printer_impl_get_id		(PdPrinterImpl	*printer);
 void		 pd_printer_impl_set_id		(PdPrinterImpl	*printer,
 						 const gchar	*id);
-void		 pd_printer_impl_update_defaults (PdPrinterImpl *printer,
-						  GVariant	*defaults);
+void		 pd_printer_impl_do_update_defaults (PdPrinterImpl *printer,
+						     GVariant	*defaults);
 void		 pd_printer_impl_add_state_reason (PdPrinterImpl *printer,
 						   const gchar *reason);
 void		 pd_printer_impl_remove_state_reason (PdPrinterImpl *printer,

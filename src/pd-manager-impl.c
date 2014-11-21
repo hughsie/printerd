@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
  * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -267,7 +268,8 @@ pd_manager_impl_complete_create_printer (PdManager *_manager,
 	pd_printer_set_device_uris (printer, device_uris);
 
 	/* set job template attribute */
-	pd_printer_impl_update_defaults (PD_PRINTER_IMPL (printer), defaults);
+	pd_printer_impl_do_update_defaults (PD_PRINTER_IMPL (printer),
+					    defaults);
 
 	/* return object path */
 	path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
