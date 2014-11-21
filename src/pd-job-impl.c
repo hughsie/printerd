@@ -22,6 +22,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -854,6 +855,91 @@ get_attribute_value (PdJob *job,
 }
 
 static gboolean
+run_file_output (gchar **argv,
+		 gchar **envp,
+		 GSpawnChildSetupFunc child_setup,
+		 gpointer user_data,
+		 GPid *child_pid,
+		 GError **error)
+{
+	pid_t pid = fork ();
+
+	if (pid == -1) {
+		*error = g_error_new (PD_ERROR,
+				      PD_ERROR_FAILED,
+				      "fork: %s",
+				      strerror (errno));
+		return FALSE;
+	} else if (pid == 0) {
+		gchar **env;
+		gchar *uri = NULL;
+		GInputStream *input;
+		GFile *file;
+		GFileIOStream *fileio = NULL;
+		GOutputStream *output = NULL;
+		GError *error = NULL;
+		gint ret = 0;
+
+		/* Child */
+		(*child_setup) (user_data);
+
+		/* Write output to file */
+		for (env = envp; *env; env++)
+			if (!strncmp (*env, "DEVICE_URI=", 11)) {
+				uri = *env + 11;
+				break;
+			}
+
+		if (!uri) {
+			fprintf (stderr,
+				 "ERROR: no DEVICE_URI in environment\n");
+			exit (1);
+		}
+
+		file = g_file_new_for_uri (uri);
+		fileio = g_file_open_readwrite (file, NULL, &error);
+		if (!fileio) {
+			fprintf (stderr, "ERROR: %s\n", error->message);
+			g_error_free (error);
+			exit (1);
+		}
+
+		output = g_io_stream_get_output_stream (G_IO_STREAM (fileio));
+		input = g_unix_input_stream_new (STDIN_FILENO, FALSE);
+		if (g_output_stream_splice (output,
+					    input,
+					    0,
+					    NULL,
+					    &error) == -1)
+			ret = 1;
+
+		if (ret == 0 && g_io_stream_close (G_IO_STREAM (fileio),
+						   NULL,
+						   &error) == -1)
+			ret = 1;
+
+		if (ret == 0 && !g_input_stream_close (input, NULL, &error))
+			ret = 1;
+
+		if (ret) {
+			fprintf (stderr, "ERROR: %s\n", error->message);
+			g_error_free (error);
+		}
+
+		if (fileio)
+			g_io_stream_close (G_IO_STREAM (fileio), NULL, NULL);
+		if (input)
+			g_input_stream_close (input, NULL, NULL);
+
+		exit (ret);
+	}
+
+	/* Parent */
+	*child_pid = pid;
+	return TRUE;
+}
+
+static gboolean
 pd_job_impl_run_process (PdJobImpl *job,
 			 struct _PdJobProcess *jp,
 			 GError **error)
@@ -906,7 +992,7 @@ pd_job_impl_run_process (PdJobImpl *job,
 		options = g_string_new ("");
 
 	argv = g_malloc0 (sizeof (char *) * 8);
-	argv[0] = g_strdup (jp->cmd);
+	argv[0] = g_strdup (jp->cmd ? jp->cmd : "(file output)");
 	/* URI */
 	argv[1] = g_strdup (uri);
 	/* Job ID */
@@ -933,15 +1019,24 @@ pd_job_impl_run_process (PdJobImpl *job,
 		g_debug ("[Job %u]  Arg: %s", job_id, *s);
 
 	jp->started = TRUE;
-	ret = g_spawn_async ("/" /* wd */,
-			     argv,
-			     envp,
-			     G_SPAWN_DO_NOT_REAP_CHILD |
-			     G_SPAWN_FILE_AND_ARGV_ZERO,
-			     pd_job_impl_process_setup,
-			     jp,
-			     &jp->pid,
-			     error);
+	if (jp->cmd)
+		ret = g_spawn_async ("/" /* wd */,
+				     argv,
+				     envp,
+				     G_SPAWN_DO_NOT_REAP_CHILD |
+				     G_SPAWN_FILE_AND_ARGV_ZERO,
+				     pd_job_impl_process_setup,
+				     jp,
+				     &jp->pid,
+				     error);
+	else
+		ret = run_file_output (argv,
+				       envp,
+				       pd_job_impl_process_setup,
+				       jp,
+				       &jp->pid,
+				       error);
+
 	if (!ret)
 		goto out;
 
@@ -1037,8 +1132,12 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	}
 
 	/* Set up pipeline */
-	job->backend->cmd = g_strdup_printf ("/usr/lib/cups/backend/%s",
-					     scheme);
+	if (!g_strcmp0 (scheme, "file"))
+		job->backend->cmd = NULL;
+	else
+		job->backend->cmd = g_strdup_printf ("/usr/lib/cups/backend/%s",
+						    scheme);
+
 	job->backend->what = "backend";
 
 	/* Set up the arranger */
