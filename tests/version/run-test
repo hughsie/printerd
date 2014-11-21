@@ -12,3 +12,4 @@ Version=$(gdbus call --session \
 	cut -d\' -f2)
 
 test "$VERSION" = "$Version"
+result_is $?

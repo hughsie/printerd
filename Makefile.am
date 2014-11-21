@@ -8,8 +8,35 @@ SUBDIRS = 						\
 	tools						\
 	po
 
+# Regression tests
+TEST_BOOKMARK=$(top_builddir)/printerd-session.lines-before-test
+TEST_SESSION_LOG=$(top_builddir)/printerd-session.log
+TESTS_ENVIRONMENT = \
+	top_srcdir=$(top_srcdir) \
+	top_builddir=$(top_builddir) \
+	BOOKMARK=$(TEST_BOOKMARK) \
+	SESSION_LOG=$(TEST_SESSION_LOG)
+
+# A rule to start printerd on a session bus of its own
+printerd-session.pid: all .FORCE
+	bash $(top_srcdir)/tests/start-session-service.sh
+
+# A rule to make the test scripts executable
+tests/started/run-test: printerd-session.pid
+	for test in $(TESTS); do \
+		chmod a+x $(top_srcdir)/$$test; \
+	done
+
+TESTS = \
+	tests/started/run-test \
+	tests/version/run-test \
+	tests/stop-session-service/run-test
+
+XFAIL_TESTS =
+
 DISTCLEANFILES = \
-	printerd-session.log \
+	$(TEST_SESSION_LOG) \
+	$(TEST_BOOKMARK) \
 	printerd-session.pid \
 	printerd-session.bus
 
@@ -45,22 +72,6 @@ distclean-local:
 	if test $(srdcir) = .; then :; else \
 		rm -f ChangeLog; \
 	fi
-
-# Regression tests
-TESTS_ENVIRONMENT = top_srcdir=$(top_srcdir) top_builddir=$(top_builddir)
-TESTS = \
-	tests/version/run-test \
-	tests/stop-session-service/run-test
-
-XFAIL_TESTS =
-
-printerd-session.pid: all .FORCE
-	bash $(top_srcdir)/tests/start-session-service.sh
-
-tests/version/run-test: printerd-session.pid
-	for test in $(TESTS); do \
-		chmod a+x $(top_srcdir)/$$test; \
-	done
 
 ChangeLog:
 	@echo Creating $@

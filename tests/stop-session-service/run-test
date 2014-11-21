@@ -15,4 +15,4 @@ for i in 1 2 3 4 5; do
 done
 
 cat "${top_builddir}"/printerd-session.log
-exit "$RET"
+result_is "$RET"

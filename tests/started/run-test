@@ -1,0 +1,7 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+# Just check the logs since start-up for warnings/errors.
+printf 0 > "${BOOKMARK}"
+result_is 0
