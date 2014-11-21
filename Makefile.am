@@ -30,9 +30,11 @@ tests/started/run-test: printerd-session.pid
 TESTS = \
 	tests/started/run-test \
 	tests/version/run-test \
+	tests/createprinter1/run-test \
 	tests/stop-session-service/run-test
 
-XFAIL_TESTS =
+XFAIL_TESTS = \
+	tests/createprinter1/run-test
 
 DISTCLEANFILES = \
 	$(TEST_SESSION_LOG) \

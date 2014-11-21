@@ -1,0 +1,88 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+# Create a printer.
+printf "CreatePrinter\n"
+result=$(gdbus call --session \
+  --dest $PD_DEST \
+  --object-path $PD_PATH/Manager \
+  --method $PD_IFACE.Manager.CreatePrinter \
+  "{}" \
+  "create-printer1" \
+  "printer description" \
+  "printer location" \
+  '["ipp://remote:631/printers/remote"]' \
+  "{}")
+
+objpath=$(printf "%s" "$result" | sed -ne "s:^(objectpath '\(.*\)',):\1:p")
+if [ -z "$objpath" ]; then
+  printf "Expected (objectpath): %s\n" "$result"
+  result_is 1
+fi
+
+# Verify its properties.
+printf "Examining %s\n" "$objpath"
+if ! diff -u - <(gdbus introspect --session --only-properties \
+  --dest $PD_DEST \
+  --object-path "$objpath" | \
+  grep ' = ' | LC_ALL=C sort | \
+  sed \
+    -e 's,^ *readonly ,,' \
+    -e '/^b IsDefault /d' \
+    -e '/^s Driver /d') << "EOF"
+ao ActiveJobs = [];
+as DeviceUris = ['ipp://remote:631/printers/remote'];
+as StateReasons = [];
+a{sv} Defaults = {'media': <'iso-a4'>, 'document-format': <'application-pdf'>};
+a{sv} Supported = {'media': <['iso-a4', 'na-letter']>, 'document-format': <['application/pdf']>};
+b IsAcceptingJobs = false;
+b IsShared = false;
+s Description = 'printer description';
+s Ieee1284Id = '';
+s Location = 'printer location';
+s Name = 'create-printer1';
+u State = 3;
+EOF
+then
+  printf "Created properties differ from expected\n"
+  result_is 1
+fi
+
+# Now delete it.
+printf "DeletePrinter\n"
+result=$(gdbus call --session \
+  --dest $PD_DEST \
+  --object-path $PD_PATH/Manager \
+  --method $PD_IFACE.Manager.DeletePrinter \
+  "{}" \
+  "$objpath")
+
+if [ "$result" != "()" ]; then
+  printf "Expected (): %s\n" "$result"
+  result_is 1
+fi
+
+# Try examining it: should fail.
+printf "Examining %s\n" "$objpath"
+result=$(gdbus introspect --session --only-properties \
+  --dest $PD_DEST \
+  --object-path "$objpath" 2>/dev/null | grep ' = ')
+if [ -n "$result" ]; then
+  printf "Expected no properties introspecting deleted printer\n"
+  result_is 1
+fi
+
+# Try deleting it a second time: should fail.
+printf "DeletePrinter\n"
+if gdbus call --session \
+  --dest $PD_DEST \
+  --object-path $PD_PATH/Manager \
+  --method $PD_IFACE.Manager.DeletePrinter \
+  "{}" \
+  $objpath 2>/dev/null; then
+  printf "Expected failure for second DeletePrinter call\n"
+  result_is 1
+fi
+
+result_is 0
