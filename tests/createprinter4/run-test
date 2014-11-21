@@ -1,0 +1,61 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+# Create two printers
+declare -A objpath
+for name in printer1 printer2; do
+    printf "CreatePrinter %s\n" "$name"
+    result=$(gdbus call --session \
+		   --dest $PD_DEST \
+		   --object-path $PD_PATH/Manager \
+		   --method $PD_IFACE.Manager.CreatePrinter \
+		   "{}" \
+		   "$name" \
+		   "printer description" \
+		   "printer location" \
+		   '["ipp://remote:631/printers/remote"]' \
+		   "{}")
+
+    objpath[$name]=$(printf "%s" "$result" | \
+			      sed -ne "s:^(objectpath '\(.*\)',):\1:p")
+    if [ -z "${objpath[$name]}" ]; then
+	printf "Expected (objectpath): %s\n" "$result"
+	result_is 1
+    fi
+done
+
+# Now check the Manager tells us about them
+printf "GetPrinters\n"
+if ! diff -u - <(gdbus call --session \
+		   --dest $PD_DEST \
+		   --object-path $PD_PATH/Manager \
+		   --method $PD_IFACE.Manager.GetPrinters | \
+		      sed -e 's:^(\[objectpath ::' -e 's:\],)$::' \
+			  -e "s:', ':'\n':g" | \
+		      LC_ALL=C sort) <<EOF
+'${objpath[printer1]}'
+'${objpath[printer2]}'
+EOF
+then
+    printf "Output differs from expected\n"
+    result_is 1
+fi
+
+# Now delete the printers.
+for name in printer1 printer2; do
+    printf "DeletePrinter %s\n" "$name"
+    result=$(gdbus call --session \
+		   --dest $PD_DEST \
+		   --object-path $PD_PATH/Manager \
+		   --method $PD_IFACE.Manager.DeletePrinter \
+		   "{}" \
+		   "${objpath[$name]}")
+
+    if [ "$result" != "()" ]; then
+	printf "Expected (): %s\n" "$result"
+	result_is 1
+    fi
+done
+
+result_is 0
