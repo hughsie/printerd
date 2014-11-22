@@ -1,0 +1,116 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+# Create a printer.
+printf "CreatePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.CreatePrinter \
+	       "{}" \
+	       "create-printer3" \
+	       "printer description" \
+	       "printer location" \
+	       '["ipp://remote:631/printers/remote"]' \
+	       "{}")
+
+objpath=$(printf "%s" "$result" | sed -ne "s:^(objectpath '\(.*\)',):\1:p")
+if [ -z "$objpath" ]; then
+    printf "Expected (objectpath): %s\n" "$result"
+    result_is 1
+fi
+
+# Save Defaults to check ResetDefaults later
+Defaults=$(gdbus introspect --session --only-properties \
+		 --dest $PD_DEST \
+		 --object-path "$objpath" | \
+		  grep ' Defaults = ' | \
+		  sed -e 's,^ *readonly a{sv} Defaults = {,,' \
+		      -e 's,};$,,' \
+		      -e 's:>, :>\n:g' | \
+		  LC_ALL=C sort)
+
+# Next try UpdateDefaults
+printf "UpdateDefaults\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path "$objpath" \
+	       --method $PD_IFACE.Printer.UpdateDefaults \
+	       "{'print-quality':<5>,'media':<'na-letter'>}")
+
+if [ "$result" != "()" ]; then
+    printf "Expected (): %s\n" "$result"
+    result_is 1
+fi
+
+# Verify it worked.
+printf "Examining %s\n" "$objpath"
+if ! diff -u - <(gdbus introspect --session --only-properties \
+		       --dest $PD_DEST \
+		       --object-path "$objpath" | \
+			grep ' Defaults = ' | \
+			sed -e 's,^ *readonly a{sv} Defaults = {,,' \
+			    -e 's,};$,,' \
+			    -e 's:>, :>\n:g' | \
+			LC_ALL=C sort) << "EOF"
+'document-format': <'application/pdf'>
+'media': <'na-letter'>
+'print-quality': <5>
+EOF
+then
+  printf "Defaults property differs from expected\n"
+  result_is 1
+fi
+
+# Try ResetDefaults
+printf "ResetDefaults\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path "$objpath" \
+	       --method $PD_IFACE.Printer.ResetDefaults \
+	       '["print-quality","media","document-format"]')
+
+if [ "$result" != "()" ]; then
+    printf "Expected (): %s\n" "$result"
+    result_is 1
+fi
+
+if diff -u <(gdbus introspect --session --only-properties \
+		   --dest $PD_DEST \
+		   --object-path "$objpath" | \
+		    grep ' Defaults = ' | \
+		    sed -e 's,^ *readonly a{sv} Defaults = {,,' \
+			-e 's,};$,,' \
+			-e 's:>, :>\n:g' | \
+		    LC_ALL=C sort) <<EOF
+$Default
+EOF
+then
+    printf "Defaults property differs from expected\n"
+    result_is 1
+fi
+
+## Should also test:
+##  SetIsAcceptingJobs
+##  SetName
+##  SetDescription
+##  SetLocation
+##  UpdateDriver
+
+EOF
+# Now delete it.
+printf "DeletePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.DeletePrinter \
+	       "{}" \
+	       "$objpath")
+
+if [ "$result" != "()" ]; then
+    printf "Expected (): %s\n" "$result"
+    result_is 1
+fi
+
+result_is 0

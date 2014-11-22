@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2012 Tim Waugh <twaugh@redhat.com>
+ * Copyright (C) 2012, 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+static GBusType Bus = G_BUS_TYPE_SYSTEM;
 
 static void
 pd_log_ignore_cb (const gchar *log_domain, GLogLevelFlags log_level,
@@ -139,7 +141,7 @@ cancel_job (const gchar *job_id)
 		job_path = g_strdup_printf ("/org/freedesktop/printerd/job/%s",
 					    job_id);
 
-	pd_job = pd_job_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+	pd_job = pd_job_proxy_new_for_bus_sync (Bus,
 						G_DBUS_PROXY_FLAGS_NONE,
 						"org.freedesktop.printerd",
 						job_path,
@@ -191,7 +193,7 @@ print_files (const char *printer_id,
 	printer_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
 					printer_id);
 	g_debug ("Getting printer %s", printer_path);
-	pd_printer = pd_printer_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+	pd_printer = pd_printer_proxy_new_for_bus_sync (Bus,
 							G_DBUS_PROXY_FLAGS_NONE,
 							"org.freedesktop.printerd",
 							printer_path,
@@ -304,7 +306,7 @@ print_files (const char *printer_id,
 	}
 
 	/* Now get the job and start it */
-	pd_job = pd_job_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+	pd_job = pd_job_proxy_new_for_bus_sync (Bus,
 						G_DBUS_PROXY_FLAGS_NONE,
 						"org.freedesktop.printerd",
 						job_path,
@@ -354,7 +356,7 @@ create_printer_from_device (const gchar *name,
 
 	device_path = g_strdup_printf ("/org/freedesktop/printerd/device/%s",
 				       device);
-	pd_device = pd_device_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+	pd_device = pd_device_proxy_new_for_bus_sync (Bus,
 						      G_DBUS_PROXY_FLAGS_NONE,
 						      "org.freedesktop.printerd",
 						      device_path,
@@ -407,7 +409,7 @@ create_printer (const gchar *name,
 	if (!strchr (device_uri, '/'))
 		return create_printer_from_device (name, device_uri);
 
-	pd_manager = pd_manager_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+	pd_manager = pd_manager_proxy_new_for_bus_sync (Bus,
 							G_DBUS_PROXY_FLAGS_NONE,
 							"org.freedesktop.printerd",
 							"/org/freedesktop/printerd/Manager",
@@ -456,7 +458,7 @@ delete_printer (const gchar *name)
 	gchar *printer_path = NULL;
 	GVariantBuilder options;
 
-	pd_manager = pd_manager_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+	pd_manager = pd_manager_proxy_new_for_bus_sync (Bus,
 							G_DBUS_PROXY_FLAGS_NONE,
 							"org.freedesktop.printerd",
 							"/org/freedesktop/printerd/Manager",
@@ -498,11 +500,16 @@ main (int argc, char **argv)
 	PdManager *pd_manager = NULL;
 	GOptionContext *opt_context = NULL;
 	gboolean verbose = FALSE;
+	gboolean session = FALSE;
 	GOptionEntry opt_entries[] = {
 		{ "verbose", 'v', 0, G_OPTION_ARG_NONE, &verbose,
 		  _("Show extra debugging information"), NULL },
+		{ "session", 'S', 0, G_OPTION_ARG_NONE, &session,
+		  _("Use the session D-Bus (for testing)"), NULL},
 		{ NULL }
 	};
+
+	g_type_init ();
 
 	opt_context = g_option_context_new ("command");
 	g_option_context_set_summary (opt_context,
@@ -534,6 +541,10 @@ main (int argc, char **argv)
                                    pd_log_ignore_cb, NULL);
 	}
 
+	/* using session bus? */
+	if (session)
+		Bus = G_BUS_TYPE_SESSION;
+
 	if (argc < 2) {
 		g_print ("%s",
 			 g_option_context_get_help (opt_context, TRUE, NULL));
@@ -541,7 +552,7 @@ main (int argc, char **argv)
 	}
 
 	g_debug ("getting printerd manager");
-	pd_manager = pd_manager_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
+	pd_manager = pd_manager_proxy_new_for_bus_sync (Bus,
 							G_DBUS_PROXY_FLAGS_NONE,
 							"org.freedesktop.printerd",
 							"/org/freedesktop/printerd/Manager",
