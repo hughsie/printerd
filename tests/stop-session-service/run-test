@@ -10,6 +10,7 @@ for i in 1 2 3 4 5; do
   sleep 1
   if kill -0 "$PID" 2>/dev/null; then :; else
     RET=0
+    rm "${top_builddir}/printerd-session.pid"
     break
   fi
 done

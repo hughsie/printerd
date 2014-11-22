@@ -12,17 +12,18 @@ SUBDIRS = 						\
 TEST_BOOKMARK=$(top_builddir)/printerd-session.lines-before-test
 TEST_SESSION_LOG=$(top_builddir)/printerd-session.log
 TESTS_ENVIRONMENT = \
+	$(MAKE) -s printerd-session.pid; \
 	top_srcdir=$(top_srcdir) \
 	top_builddir=$(top_builddir) \
 	BOOKMARK=$(TEST_BOOKMARK) \
 	SESSION_LOG=$(TEST_SESSION_LOG)
 
 # A rule to start printerd on a session bus of its own
-printerd-session.pid: all .FORCE
+printerd-session.pid:
 	bash $(top_srcdir)/tests/start-session-service.sh
 
 # A rule to make the test scripts executable
-tests/started/run-test: printerd-session.pid
+tests/started/run-test:
 	for test in $(TESTS); do \
 		chmod a+x $(top_srcdir)/$$test; \
 	done
