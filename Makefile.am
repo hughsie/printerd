@@ -32,6 +32,7 @@ TESTS = \
 	tests/started/run-test \
 	tests/version/run-test \
 	tests/createprinter1/run-test \
+	tests/createprinter2/run-test \
 	tests/stop-session-service/run-test
 
 XFAIL_TESTS =
