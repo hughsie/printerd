@@ -34,8 +34,7 @@ TESTS = \
 	tests/createprinter1/run-test \
 	tests/stop-session-service/run-test
 
-XFAIL_TESTS = \
-	tests/createprinter1/run-test
+XFAIL_TESTS =
 
 DISTCLEANFILES = \
 	$(TEST_SESSION_LOG) \
