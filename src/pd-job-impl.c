@@ -1466,10 +1466,13 @@ pd_job_impl_add_document (PdJob *_job,
 					       &error);
 	if (job->document_fd < 0) {
 		g_debug ("[Job %u] failed to get file descriptor: %s",
-			 job_id, error->message);
+			 job_id,
+			 error->message ?
+			 error->message : "(no error message)");
 		g_dbus_method_invocation_return_gerror (invocation,
 							error);
-		g_error_free (error);
+		if (error)
+			g_error_free (error);
 		goto out;
 	}
 
