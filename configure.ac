@@ -58,14 +58,27 @@ AC_SUBST(POLKIT_AGENT_1_CFLAGS)
 AC_SUBST(POLKIT_AGENT_1_LIBS)
 
 # systemd
-AC_ARG_WITH([systemdsystemunitdir],
-            AS_HELP_STRING([--with-systemdsystemunitdir=DIR], [Directory for systemd service files]),
-            [],
-            [with_systemdsystemunitdir=$($PKG_CONFIG --variable=systemdsystemunitdir systemd)])
-if test "x$with_systemdsystemunitdir" != "xno"; then
-  AC_SUBST([systemdsystemunitdir], [$with_systemdsystemunitdir])
+AC_ARG_ENABLE(systemd,
+              AS_HELP_STRING([--enable-systemd],[enable systemd [default=yes]]),
+	      enable_systemd=$enableval,enable_systemd=yes)
+AM_CONDITIONAL(HAVE_SYSTEMD, test x$enable_systemd = xyes)
+if test x$enable_systemd = xyes; then
+  PKG_CHECK_MODULES(SYSTEMD,
+                    [libsystemd >= 200])
+  AC_ARG_WITH([systemdsystemunitdir],
+              AS_HELP_STRING([--with-systemdsystemunitdir=DIR], [Directory for systemd service files]),
+              [],
+              [with_systemdsystemunitdir=$($PKG_CONFIG --variable=systemdsystemunitdir systemd)])
+  if test "x$with_systemdsystemunitdir" != "xno"; then
+    AC_SUBST([systemdsystemunitdir], [$with_systemdsystemunitdir])
+  fi
+  AC_DEFINE(HAVE_SYSTEMD, 1, [if we should use systemd])
+else
+  SYSTEMD_CFLAGS=""
+  SYSTEMD_LIBS=""
 fi
-AM_CONDITIONAL(HAVE_SYSTEMD, [test -n "$systemdsystemunitdir"])
+AC_SUBST(SYSTEMD_CFLAGS)
+AC_SUBST(SYSTEMD_LIBS)
 
 # Internationalization
 #

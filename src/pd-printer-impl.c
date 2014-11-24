@@ -29,6 +29,7 @@
 #include "pd-daemon.h"
 #include "pd-engine.h"
 #include "pd-job-impl.h"
+#include "pd-log.h"
 
 /**
  * SECTION:pdprinter
@@ -117,7 +118,8 @@ pd_printer_impl_finalize (GObject *object)
 {
 	PdPrinterImpl *printer = PD_PRINTER_IMPL (object);
 
-	g_debug ("[Printer %s] Finalize", printer->id);
+	printer_debug (PD_PRINTER (printer), "Finalize");
+
 	/* note: we don't hold a reference to printer->daemon */
 	g_ptr_array_foreach (printer->jobs,
 			     pd_printer_impl_remove_job,
@@ -344,14 +346,15 @@ pd_printer_impl_update_defaults (PdPrinterImpl *printer,
 	gchar *key;
 	GVariant *value;
 
-	g_debug ("[Printer %s] Updating defaults", printer->id);
+	printer_debug (PD_PRINTER (printer), "Updating defaults");
 
 	/* add/overwrite default values, keeping other existing values */
 	g_variant_iter_init (&iter, defaults);
 	while (g_variant_iter_loop (&iter, "{sv}", &key, &value)) {
 		gchar *val = g_variant_print (value, TRUE);
-		g_debug ("[Printer %s] Defaults: set %s=%s",
-			 printer->id, key, val);
+		printer_debug (PD_PRINTER (printer),
+			       "Defaults: set %s=%s",
+			       key, val);
 	}
 
 	current_defaults = pd_printer_get_defaults (PD_PRINTER (printer));
@@ -367,7 +370,7 @@ pd_printer_impl_add_state_reason (PdPrinterImpl *printer,
 	const gchar *const *reasons;
 	gchar **strv;
 
-	g_debug ("[Printer %s] state-reasons += %s", printer->id, reason);
+	printer_debug (PD_PRINTER (printer), "state-reasons += %s", reason);
 
 	reasons = pd_printer_get_state_reasons (PD_PRINTER (printer));
 	strv = add_or_remove_state_reason (reasons, '+', reason);
@@ -383,7 +386,7 @@ pd_printer_impl_remove_state_reason (PdPrinterImpl *printer,
 	const gchar *const *reasons;
 	gchar **strv;
 
-	g_debug ("[Printer %s] state-reasons -= %s", printer->id, reason);
+	printer_debug (PD_PRINTER (printer), "state-reasons -= %s", reason);
 
 	reasons = pd_printer_get_state_reasons (PD_PRINTER (printer));
 	strv = add_or_remove_state_reason (reasons, '-', reason);
@@ -511,8 +514,8 @@ attribute_value_is_supported (PdPrinterImpl *printer,
 	}
 
 	if (!found) {
-		g_debug ("[Printer %s] Unsupported value for %s",
-			 printer->id, key);
+		printer_debug (PD_PRINTER (printer),
+			       "Unsupported value for %s", key);
 		goto out;
 	}
 
@@ -611,7 +614,7 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	GVariant *job_attributes;
 	gchar *user = NULL;
 
-	g_debug ("[Printer %s] Creating job", printer->id);
+	printer_debug (PD_PRINTER (printer), "Creating job");
 
 	/* set attributes from job template attributes */
 	defaults = pd_printer_get_defaults (PD_PRINTER (printer));
@@ -623,8 +626,9 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 		/* Is there a list of supported values? */
 		if (!attribute_value_is_supported (printer, dkey, dvalue)) {
 			gchar *val = g_variant_print (dvalue, TRUE);
-			g_debug ("[Printer %s] Unsupported attribute %s=%s",
-				 printer->id, dkey, val);
+			printer_debug (PD_PRINTER (printer),
+				       "Unsupported attribute %s=%s",
+				       dkey, val);
 			g_free (val);
 			g_variant_builder_add (&unsupported, "{sv}",
 					       dkey,
@@ -662,15 +666,14 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 
 	/* Set job-originating-user-name */
 	user = pd_get_unix_user (invocation);
-	g_debug ("[Printer %s] Originating user is %s",
-		 printer->id, user);
+	printer_debug (PD_PRINTER (printer), "Originating user is %s", user);
 	pd_job_impl_set_attribute (PD_JOB_IMPL (job),
 				   "job-originating-user-name",
 				   g_variant_new_string (user));
 
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       pd_job_get_id (job));
-	g_debug ("[Printer %s] Job path is %s", printer->id, object_path);
+	printer_debug (PD_PRINTER (printer), "Job path is %s", object_path);
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_new ("(o@a{sv})",
 							      object_path,

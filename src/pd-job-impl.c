@@ -40,6 +40,7 @@
 #include "pd-engine.h"
 #include "pd-job-impl.h"
 #include "pd-printer-impl.h"
+#include "pd-log.h"
 
 /**
  * SECTION:pdjob
@@ -142,8 +143,9 @@ pd_job_impl_finalize_jp (gpointer data)
 
 	if (jp->started &&
 	    !jp->finished) {
-		g_debug ("[Job %u] Sending KILL signal to backend PID %d",
-			 pd_job_get_id (PD_JOB (jp->job)), jp->pid);
+		job_debug (PD_JOB (jp->job),
+			   "Sending KILL signal to backend PID %d",
+			   jp->pid);
 		kill (jp->pid, SIGKILL);
 		g_spawn_close_pid (jp->pid);
 	}
@@ -167,9 +169,8 @@ static void
 pd_job_impl_finalize (GObject *object)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
-	guint job_id = pd_job_get_id (PD_JOB (job));
 
-	g_debug ("[Job %u] Finalize", job_id);
+	job_debug (PD_JOB (job), "Finalize");
 	/* note: we don't hold a reference to job->daemon */
 	if (job->document_fd != -1)
 		close (job->document_fd);
@@ -372,9 +373,7 @@ pd_job_impl_add_state_reason (PdJobImpl *job,
 	const gchar *const *reasons;
 	gchar **strv;
 
-	g_debug ("[Job %u] state-reasons += %s",
-		 pd_job_get_id (PD_JOB (job)),
-		 reason);
+	job_debug (PD_JOB (job), "state-reasons += %s", reason);
 
 	reasons = pd_job_get_state_reasons (PD_JOB (job));
 	strv = add_or_remove_state_reason (reasons, '+', reason);
@@ -390,9 +389,7 @@ pd_job_impl_remove_state_reason (PdJobImpl *job,
 	const gchar *const *reasons;
 	gchar **strv;
 
-	g_debug ("[Job %u] state-reasons -= %s",
-		 pd_job_get_id (PD_JOB (job)),
-		 reason);
+	job_debug (PD_JOB (job), "state-reasons -= %s", reason);
 
 	reasons = pd_job_get_state_reasons (PD_JOB (job));
 	strv = add_or_remove_state_reason (reasons, '-', reason);
@@ -417,9 +414,8 @@ pd_job_impl_check_job_transforming (PdJobImpl *job)
 		    !jp->finished) {
 			/* There is still a filter chain
 			   process running. */
-			g_debug ("[Job %u] PID %u (%s) still running",
-				 pd_job_get_id (PD_JOB (job)),
-				 jp->pid, jp->what);
+			job_debug (PD_JOB (job), "PID %u (%s) still running",
+				   jp->pid, jp->what);
 			break;
 		}
 	}
@@ -439,13 +435,13 @@ pd_job_impl_process_watch_cb (GPid pid,
 {
 	struct _PdJobProcess *jp = (struct _PdJobProcess *) user_data;
 	PdJobImpl *job = PD_JOB_IMPL (jp->job);
-	guint job_id = pd_job_get_id (PD_JOB (job));
 
 	g_spawn_close_pid (pid);
 	jp->finished = TRUE;
 	jp->process_watch_source = 0;
-	g_debug ("[Job %u] PID %d (%s) finished with status %d",
-		 job_id, pid, jp->what, WEXITSTATUS (status));
+	job_debug (PD_JOB (jp->job),
+		   "PID %d (%s) finished with status %d",
+		   pid, jp->what, WEXITSTATUS (status));
 
 	/* Close its input file descriptors */
 	if (jp->io_source[STDIN_FILENO]) {
@@ -467,8 +463,8 @@ pd_job_impl_process_watch_cb (GPid pid,
 
 	/* Adjust job state. */
 	if (WEXITSTATUS (status) != 0) {
-		g_debug ("[Job %u] %s failed: aborting job",
-			 job_id, jp->what);
+		job_debug (PD_JOB (jp->job),
+			   "%s failed: aborting job", jp->what);
 
 		job->pending_job_state = PD_JOB_STATE_ABORTED;
 	}
@@ -488,9 +484,8 @@ pd_job_impl_process_watch_cb (GPid pid,
 
 		if (!filter) {
 			/* No more processes running. */
-			g_debug ("[Job %u] Set job state to %s",
-				 job_id,
-				 pd_job_state_as_string (job->pending_job_state));
+			job_debug (PD_JOB (job), "Set job state to %s",
+				   pd_job_state_as_string (job->pending_job_state));
 			pd_job_set_state (PD_JOB (job),
 					  job->pending_job_state);
 		}
@@ -545,7 +540,6 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 {
 	struct _PdJobProcess *thisjp = (struct _PdJobProcess *) data;
 	PdJobImpl *job = PD_JOB_IMPL (thisjp->job);
-	guint job_id = pd_job_get_id (PD_JOB (job));
 	gboolean keep_source = TRUE;
 	GError *error = NULL;
 	GIOStatus status;
@@ -571,10 +565,9 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 		case G_IO_STATUS_NORMAL:
 			job->buflen = got;
 			job->bufsent = 0;
-			g_debug ("[Job %u] Read %zu bytes from %s",
-				 job_id,
-				 got,
-				 thisjp->what);
+			job_debug (PD_JOB (job), "Read %zu bytes from %s",
+				   got,
+				   thisjp->what);
 
 			nextchannel = nextjp->channel[nextfd];
 			if (nextchannel)
@@ -588,19 +581,17 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 			break;
 
 		case G_IO_STATUS_EOF:
-			g_debug ("[Job %u] Output from %s closed",
-				 job_id,
-				 thisjp->what);
+			job_debug (PD_JOB (job), "Output from %s closed",
+				   thisjp->what);
 
 			g_io_channel_unref (channel);
 			keep_source = FALSE;
 			break;
 
 		case G_IO_STATUS_ERROR:
-			g_warning ("[Job %u] read() from %s failed: %s",
-				   job_id,
-				   thisjp->what,
-				   error->message);
+			job_warning (PD_JOB (job), "read() from %s failed: %s",
+				     thisjp->what,
+				     error->message);
 			g_error_free (error);
 			pd_job_impl_do_cancel_with_reason (job,
 							   PD_JOB_STATE_ABORTED,
@@ -646,8 +637,8 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 					       NULL);
 			keep_source = FALSE;
 			thisjp->io_source[thisfd] = 0;
-			g_debug ("[Job %u] Closing input to %s",
-				 job_id, thisjp->what);
+			job_debug (PD_JOB (job), "Closing input to %s",
+				   thisjp->what);
 			thisjp->channel[thisfd] = NULL;
 			g_io_channel_unref (channel);
 			pd_job_impl_check_job_transforming (job);
@@ -661,26 +652,26 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 						   &error);
 		switch (status) {
 		case G_IO_STATUS_ERROR:
-			g_warning ("[Job %u] Error writing to %s: %s",
-				   job_id, thisjp->what, error->message);
+			job_warning (PD_JOB (job), "Error writing to %s: %s",
+				     thisjp->what, error->message);
 			g_error_free (error);
 			pd_job_impl_do_cancel_with_reason (job,
 							   PD_JOB_STATE_ABORTED,
 							   "job-aborted-by-system");
 			goto out;
 		case G_IO_STATUS_EOF:
-			g_debug ("[Job %u] EOF on write?", job_id);
+			job_debug (PD_JOB (job), "EOF on write?");
 			pd_job_impl_do_cancel_with_reason (job,
 							   PD_JOB_STATE_ABORTED,
 							   "job-canceled-by-system");
 			break;
 		case G_IO_STATUS_AGAIN:
-			g_debug ("[Job %u] Resource temporarily unavailable",
-				 job_id);
+			job_debug (PD_JOB (job),
+				   "Resource temporarily unavailable");
 			break;
 		case G_IO_STATUS_NORMAL:
-			g_debug ("[Job %u] Wrote %zu bytes to %s",
-				 job_id, wrote, thisjp->what);
+			job_debug (PD_JOB (job), "Wrote %zu bytes to %s",
+				   wrote, thisjp->what);
 			break;
 		}
 
@@ -713,7 +704,6 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 {
 	struct _PdJobProcess *jp = (struct _PdJobProcess *) data;
 	PdJobImpl *job = PD_JOB_IMPL (jp->job);
-	guint job_id = pd_job_get_id (PD_JOB (job));
 	gboolean keep_source = TRUE;
 	GError *error = NULL;
 	GIOStatus status;
@@ -737,23 +727,21 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 						 &error)) ==
 	       G_IO_STATUS_NORMAL) {
 		if (thisfd == STDERR_FILENO) {
-			g_debug ("[Job %u] %s: %s",
-				 job_id, jp->what,
-				 g_strchomp (line));
+			job_debug (PD_JOB (job), "%s: %s",
+				   jp->what, g_strchomp (line));
 			pd_job_impl_parse_stderr (job, line);
 		}
 		else
-			g_debug ("[Job %u] backend(stdout): %s",
-				 job_id,
-				 g_strchomp (line));
+			job_debug (PD_JOB (job), "backend(stdout): %s",
+				   g_strchomp (line));
 
 		g_free (line);
 	}
 
 	switch (status) {
 	case G_IO_STATUS_ERROR:
-		g_warning ("[Job %u] Error reading from channel: %s",
-			   job_id, error->message);
+		job_warning (PD_JOB (job), "Error reading from channel: %s",
+			     error->message);
 		g_error_free (error);
 		g_io_channel_unref (channel);
 		keep_source = FALSE;
@@ -762,8 +750,7 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 		goto out;
 	case G_IO_STATUS_EOF:
 		g_io_channel_unref (channel);
-		g_debug ("[Job %u] %s fd %d closed",
-			 job_id, jp->what, thisfd);
+		job_debug (PD_JOB (job), "%s fd %d closed", jp->what, thisfd);
 		keep_source = FALSE;
 		break;
 	case G_IO_STATUS_AGAIN:
@@ -794,8 +781,8 @@ pd_job_impl_create_pipe_for (PdJobImpl *job,
 	gint pipe_fd[2];
 
 	if (pipe (pipe_fd) != 0) {
-		g_warning ("[Job %u] Failed to create pipe: %s",
-			   pd_job_get_id (PD_JOB (job)), g_strerror (errno));
+		job_warning (PD_JOB (job), "Failed to create pipe: %s",
+			     g_strerror (errno));
 		return FALSE;
 	}
 
@@ -1012,11 +999,11 @@ pd_job_impl_run_process (PdJobImpl *job,
 	envp[0] = g_strdup_printf ("DEVICE_URI=%s", uri);
 	envp[1] = NULL;
 
-	g_debug ("[Job %u] Executing %s", job_id, argv[0]);
+	job_debug (PD_JOB (job), "Executing %s", argv[0]);
 	for (s = envp; *s; s++)
-		g_debug ("[Job %u]  Env: %s", job_id, *s);
+		job_debug (PD_JOB (job), " Env: %s", *s);
 	for (s = argv + 1; *s; s++)
-		g_debug ("[Job %u]  Arg: %s", job_id, *s);
+		job_debug (PD_JOB (job), " Arg: %s", *s);
 
 	jp->started = TRUE;
 	if (jp->cmd)
@@ -1090,7 +1077,6 @@ static void
 pd_job_impl_start_processing (PdJobImpl *job)
 {
 	GError *error = NULL;
-	guint job_id = pd_job_get_id (PD_JOB (job));
 	const gchar *printer_path;
 	const gchar *uri;
 	PdPrinter *printer = NULL;
@@ -1102,32 +1088,32 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	GList *filter;
 
 	if (job->filterchain) {
-		g_warning ("[Job %u] Already processing!", job_id);
+		job_warning (PD_JOB (job), "Already processing!");
 		goto out;
 	}
 
-	g_debug ("[Job %u] Starting to process job", job_id);
+	job_debug (PD_JOB (job), "Starting to process job");
 
 	/* Get the device URI to use from the Printer */
 	printer_path = pd_job_get_printer (PD_JOB (job));
 	printer = pd_engine_get_printer_by_path (pd_daemon_get_engine (job->daemon),
 						 printer_path);
 	if (!printer) {
-		g_warning ("[Job %u] Incorrect printer path %s",
-			   job_id, printer_path);
+		job_warning (PD_JOB (job), "Incorrect printer path %s",
+			     printer_path);
 		goto fail;
 	}
 
 	uri = pd_printer_impl_get_uri (PD_PRINTER_IMPL (printer));
-	g_debug ("[Job %u] Using device URI %s", job_id, uri);
+	job_debug (PD_JOB (job), "Using device URI %s", uri);
 	pd_job_set_device_uri (PD_JOB (job), uri);
 	scheme = g_uri_parse_scheme (uri);
 
 	/* Open document */
 	document_fd = open (job->document_filename, O_RDONLY);
 	if (document_fd == -1) {
-		g_warning ("[Job %u] Failed to open spool file %s: %s",
-			   job_id, job->document_filename, g_strerror (errno));
+		job_warning (PD_JOB (job), "Failed to open spool file %s: %s",
+			     job->document_filename, g_strerror (errno));
 		goto fail;
 	}
 
@@ -1181,8 +1167,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	/* Connect the back-channel between backend and filter-chain */
 	if (pipe (pipe_fd) != 0) {
-		g_warning ("[Job %u] Failed to create pipe: %s",
-			   job_id, g_strerror (errno));
+		job_warning (PD_JOB (job), "Failed to create pipe: %s",
+			     g_strerror (errno));
 		goto fail;
 	}
 
@@ -1196,8 +1182,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	/* Connect the side-channel between filter-chain and backend */
 	if (socketpair (AF_LOCAL, SOCK_STREAM, 0, pipe_fd) != 0) {
-		g_warning ("[Job %u] Failed to create socket pair: %s",
-			   job_id, g_strerror (errno));
+		job_warning (PD_JOB (job), "Failed to create socket pair: %s",
+			     g_strerror (errno));
 		goto fail;
 	}
 
@@ -1216,8 +1202,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
 		if (!pd_job_impl_run_process (job, jp, &error)) {
-			g_warning ("[Job %u] Running %s: %s",
-				   job_id, jp->what, error->message);
+			job_warning (PD_JOB (job), "Running %s: %s",
+				     jp->what, error->message);
 			g_error_free (error);
 			goto fail;
 		}
@@ -1267,7 +1253,6 @@ void
 pd_job_impl_start_sending (PdJobImpl *job)
 {
 	GError *error = NULL;
-	guint job_id = pd_job_get_id (PD_JOB (job));
 	GIOChannel *channel;
 
 	if (!job->filterchain) {
@@ -1280,8 +1265,8 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	/* Run backend */
 	pd_job_impl_add_state_reason (job, "job-outgoing");
 	if (!pd_job_impl_run_process (job, job->backend, &error)) {
-		g_warning ("[Job %u] Running backend: %s",
-			   job_id, error->message);
+		job_warning (PD_JOB (job), "Running backend: %s",
+			     error->message);
 		g_error_free (error);
 
 		/* Update job state */
@@ -1406,7 +1391,6 @@ pd_job_impl_add_document (PdJob *_job,
 			  GVariant *file_descriptor)
 {
 	PdJobImpl *job = PD_JOB_IMPL (_job);
-	guint job_id = pd_job_get_id (PD_JOB (job));
 	gint32 fd_handle;
 	GError *error = NULL;
 	GVariant *attr_user;
@@ -1430,9 +1414,9 @@ pd_job_impl_add_document (PdJob *_job,
 	}
 	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
-		g_debug ("[Job %u] AddDocument: denied "
-			 "[originating user: %s; requesting user: %s]",
-			 job_id, originating_user, requesting_user);
+		job_debug (PD_JOB (job), "AddDocument: denied "
+			   "[originating user: %s; requesting user: %s]",
+			   originating_user, requesting_user);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
@@ -1442,7 +1426,7 @@ pd_job_impl_add_document (PdJob *_job,
 
 	if (job->document_fd != -1 ||
 	    job->document_filename != NULL) {
-		g_debug ("[Job %u] Tried to add second document", job_id);
+		job_debug (PD_JOB (job), "Tried to add second document");
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
@@ -1450,9 +1434,9 @@ pd_job_impl_add_document (PdJob *_job,
 		goto out;
 	}
 
-	g_debug ("[Job %u] Adding document", job_id);
+	job_debug (PD_JOB (job), "Adding document");
 	if (fd_list == NULL || g_unix_fd_list_get_length (fd_list) != 1) {
-		g_warning ("[Job %u] Bad AddDocument call", job_id);
+		job_warning (PD_JOB (job), "Bad AddDocument call");
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
@@ -1465,9 +1449,8 @@ pd_job_impl_add_document (PdJob *_job,
 					       fd_handle,
 					       &error);
 	if (job->document_fd < 0) {
-		g_debug ("[Job %u] failed to get file descriptor: %s",
-			 job_id,
-			 error ? error->message : "(no error message)");
+		job_debug (PD_JOB (job), " failed to get file descriptor: %s",
+			   error ? error->message : "(no error message)");
 		g_dbus_method_invocation_return_gerror (invocation,
 							error);
 		if (error)
@@ -1475,8 +1458,7 @@ pd_job_impl_add_document (PdJob *_job,
 		goto out;
 	}
 
-	g_debug ("[Job %u] Got file descriptor: %d",
-		 job_id, job->document_fd);
+	job_debug (PD_JOB (job), "Got file descriptor: %d", job->document_fd);
 	g_dbus_method_invocation_return_value (invocation, NULL);
 
  out:
@@ -1491,7 +1473,6 @@ pd_job_impl_start (PdJob *_job,
 		   GVariant *options)
 {
 	PdJobImpl *job = PD_JOB_IMPL (_job);
-	guint job_id = pd_job_get_id (PD_JOB (job));
 	gchar *name_used = NULL;
 	GError *error = NULL;
 	GInputStream *input = NULL;
@@ -1518,9 +1499,9 @@ pd_job_impl_start (PdJob *_job,
 	}
 	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
-		g_debug ("[Job %u] AddDocument: denied "
-			 "[originating user: %s; requesting user: %s]",
-			 job_id, originating_user, requesting_user);
+		job_debug (PD_JOB (job), "AddDocument: denied "
+			   "[originating user: %s; requesting user: %s]",
+			   originating_user, requesting_user);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
@@ -1542,8 +1523,8 @@ pd_job_impl_start (PdJob *_job,
 				   &error);
 
 	if (spoolfd < 0) {
-		g_debug ("[Job %u] Error making temporary file: %s",
-			 job_id, error->message);
+		job_debug (PD_JOB (job), "Error making temporary file: %s",
+			   error->message);
 		g_dbus_method_invocation_return_gerror (invocation,
 							error);
 		g_error_free (error);
@@ -1552,10 +1533,10 @@ pd_job_impl_start (PdJob *_job,
 
 	job->document_filename = g_strdup (name_used);
 
-	g_debug ("[Job %u] Starting job", job_id);
+	job_debug (PD_JOB (job), "Starting job");
 
-	g_debug ("[Job %u] Spooling", job_id);
-	g_debug ("[Job %u]   Created temporary file %s", job_id, name_used);
+	job_debug (PD_JOB (job), "Spooling");
+	job_debug (PD_JOB (job), "  Created temporary file %s", name_used);
 
 	input = g_unix_input_stream_new (job->document_fd,
 					 TRUE /* close_fd */);
@@ -1582,7 +1563,7 @@ pd_job_impl_start (PdJob *_job,
 
 	/* Move the job state to pending: this is now a candidate to
 	   start processing */
-	g_debug ("[Job %u]  Set job state to pending", job_id);
+	job_debug (PD_JOB (job), " Set job state to pending");
 	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING);
 
 	/* Return success */
@@ -1615,7 +1596,6 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 				   const gchar *reason)
 {
 	PdJob *_job = PD_JOB (job);
-	guint job_id = pd_job_get_id (_job);
 	GList *filter;
 
 	pd_job_impl_add_state_reason (PD_JOB_IMPL (job), reason);
@@ -1628,8 +1608,8 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 		/* These can be canceled right away. */
 
 		/* Change job state. */
-		g_debug ("[Job %u] Pending job set to state %s",
-			 job_id, pd_job_state_as_string (job_state));
+		job_debug (PD_JOB (job), "Pending job set to state %s",
+			   pd_job_state_as_string (job_state));
 		pd_job_set_state (_job, job_state);
 
 		/* Nothing else to do */
@@ -1643,8 +1623,8 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 		if (!pd_job_impl_check_job_transforming (job) &&
 		    !job->backend->started) {
 			/* Already finished */
-			g_debug ("[Job %u] Stopped after transformation",
-				 job_id);
+			job_debug (PD_JOB (job),
+				   "Stopped after transformation");
 			pd_job_set_state (_job, job_state);
 			break;
 		}
@@ -1657,8 +1637,8 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 
 		if (job->backend->channel[STDIN_FILENO] != NULL) {
 			/* Stop sending data to the backend. */
-			g_debug ("[Job %u] Stop sending data to the backend",
-				 job_id);
+			job_debug (PD_JOB (job),
+				   "Stop sending data to the backend");
 			if (job->backend->io_source[STDIN_FILENO]) {
 				g_source_remove (job->backend->io_source[STDIN_FILENO]);
 				job->backend->io_source[STDIN_FILENO] = 0;
@@ -1679,19 +1659,18 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 			    jp->finished)
 				continue;
 
-			g_debug ("[Job %u] Sending KILL signal to %s (PID %d)",
-				 job_id,
-				 jp->what,
-				 jp->pid);
+			job_debug (PD_JOB (job),
+				   "Sending KILL signal to %s (PID %d)",
+				   jp->what, jp->pid);
 			kill (jp->pid, SIGKILL);
 			g_spawn_close_pid (jp->pid);
 		}
 
 		if (job->backend->started &&
 		    !job->backend->finished) {
-			g_debug ("[Job %u] Sending KILL signal to backend (PID %d)",
-				 job_id,
-				 job->backend->pid);
+			job_debug (PD_JOB (job),
+				   "Sending KILL signal to backend (PID %d)",
+				   job->backend->pid);
 			kill (job->backend->pid, SIGKILL);
 			g_spawn_close_pid (job->backend->pid);
 		}
@@ -1711,7 +1690,6 @@ pd_job_impl_cancel (PdJob *_job,
 		    GVariant *options)
 {
 	PdJobImpl *job = PD_JOB_IMPL (_job);
-	guint job_id = pd_job_get_id (PD_JOB (job));
 	GVariant *attr_user;
 	gchar *requesting_user = NULL;
 	const gchar *originating_user = NULL;
@@ -1733,9 +1711,9 @@ pd_job_impl_cancel (PdJob *_job,
 	}
 	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
-		g_debug ("[Job %u] AddDocument: denied "
-			 "[originating user: %s; requesting user: %s]",
-			 job_id, originating_user, requesting_user);
+		job_debug (PD_JOB (job), "AddDocument: denied "
+			   "[originating user: %s; requesting user: %s]",
+			   originating_user, requesting_user);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,
@@ -1747,7 +1725,7 @@ pd_job_impl_cancel (PdJob *_job,
 	case PD_JOB_STATE_PENDING:
 	case PD_JOB_STATE_PENDING_HELD:
 		/* These can be canceled right away. */
-		g_debug ("[Job %u] Canceled by user", job_id);
+		job_debug (PD_JOB (job), "Canceled by user");
 		goto cancel;
 		break;
 
