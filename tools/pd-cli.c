@@ -20,6 +20,7 @@
 
 #include "config.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <gio/gunixfdlist.h>
 #include <glib.h>
@@ -172,12 +173,91 @@ cancel_job (const gchar *job_id)
 }
 
 static gint
+add_documents (const gchar *job_id,
+	       const gchar **documents)
+{
+	GError *error = NULL;
+	PdJob *pd_job = NULL;
+	gboolean docs_added = FALSE;
+	GString *job_path = g_string_new ("");
+	const gchar **file;
+
+	g_string_printf (job_path,
+			 "/org/freedesktop/printerd/job/%s",
+			 job_id);
+
+	/* Add documents to the job. */
+	pd_job = pd_job_proxy_new_for_bus_sync (Bus,
+						G_DBUS_PROXY_FLAGS_NONE,
+						"org.freedesktop.printerd",
+						job_path->str,
+						NULL,
+						&error);
+	g_string_free (job_path, TRUE);
+	if (!pd_job) {
+		g_printerr ("Error getting job: %s\n", error->message);
+		g_error_free (error);
+		return 1;
+	}
+
+	for (file = documents; *file; file++) {
+		GVariantBuilder options;
+		GUnixFDList *fd_list = g_unix_fd_list_new ();
+		gint fd = -1;
+
+		if (!fd_list)
+			goto next_document;
+
+		fd = open ((const char *) *file, O_RDONLY);
+		if (fd < 0) {
+			g_printerr ("Error opening file: %s\n",
+				    strerror (errno));
+			goto next_document;
+		}
+		if (g_unix_fd_list_append (fd_list, fd, NULL) == -1) {
+			close (fd);
+			g_printerr ("Error adding fd to list\n");
+			goto next_document;
+		}
+
+		g_variant_builder_init (&options, G_VARIANT_TYPE ("a{sv}"));
+		if (!pd_job_call_add_document_sync (pd_job,
+						    g_variant_builder_end (&options),
+						    g_variant_new_handle (0),
+						    fd_list,
+						    NULL, /* out_fd_list */
+						    NULL, /* cancellable */
+						    &error)) {
+			g_printerr ("Error adding document: %s\n",
+				    error->message);
+			g_error_free (error);
+			goto next_document;
+		}
+		if (error) {
+			g_printerr ("Error adding document: %s\n",
+				    error->message);
+			g_error_free (error);
+			goto next_document;
+		}
+		g_debug ("Document added");
+		docs_added = TRUE;
+
+	next_document:
+		if (fd != -1)
+			close (fd);
+		if (fd_list != NULL)
+			g_object_unref (fd_list);
+	}
+
+	return docs_added ? 0 : 1;
+}
+
+static gint
 print_files (const char *printer_id,
 	     char **files)
 {
 	GError *error = NULL;
 	gint ret = 1;
-	GDBusConnection *connection;
 	PdPrinter *pd_printer = NULL;
 	PdJob *pd_job = NULL;
 	gchar *printer_path = NULL;
@@ -185,9 +265,7 @@ print_files (const char *printer_id,
 	GVariant *unsupported = NULL;
 	GVariantBuilder options;
 	GVariantBuilder attributes;
-	gboolean docs_added = FALSE;
 	GVariantBuilder start_options;
-	gchar **file;
 
 	/* Get the Printer */
 	printer_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
@@ -225,82 +303,8 @@ print_files (const char *printer_id,
 
 	g_debug ("Job created: %s", job_path);
 
-	/* Add documents to the job. Need to do this with a low-level
-	   call to add the file descriptor list. */
-	connection = g_dbus_proxy_get_connection (G_DBUS_PROXY (pd_printer));
-	for (file = files; *file; file++) {
-		gint fd;
-		GUnixFDList *fd_list = g_unix_fd_list_new ();
-		GDBusMessage *request = NULL;
-		GDBusMessage *reply = NULL;
-		GVariant *body;
-
-		if (!fd_list)
-			goto next_document;
-
-		request = g_dbus_message_new_method_call ("org.freedesktop.printerd",
-							  job_path,
-							  "org.freedesktop.printerd.Job",
-							  "AddDocument");
-		fd = open (files[0], O_RDONLY);
-		if (fd < 0) {
-			g_printerr ("Error opening file: %s\n", error->message);
-			g_error_free (error);
-			goto next_document;
-		}
-		if (g_unix_fd_list_append (fd_list, fd, NULL) == -1) {
-			close (fd);
-			g_printerr ("Error adding fd to list\n");
-			goto next_document;
-		}
-
-		g_dbus_message_set_unix_fd_list (request, fd_list);
-
-		/* fd was dup'ed by set_unix_fd_list */
-		close (fd);
-
-		g_variant_builder_init (&options, G_VARIANT_TYPE ("a{sv}"));
-		body = g_variant_new ("(@a{sv}@h)",
-				      g_variant_builder_end (&options),
-				      g_variant_new_handle (0));
-		g_dbus_message_set_body (request, body);
-
-		/* send sync message to the bus */
-		reply = g_dbus_connection_send_message_with_reply_sync (connection,
-									request,
-									G_DBUS_SEND_MESSAGE_FLAGS_NONE,
-									5000,
-									NULL,
-									NULL,
-									&error);
-		if (reply == NULL) {
-			g_printerr ("Error adding document: %s\n", error->message);
-			g_error_free (error);
-			goto next_document;
-		}
-		if (g_dbus_message_get_message_type (reply) == G_DBUS_MESSAGE_TYPE_ERROR) {
-			g_dbus_message_to_gerror (reply, &error);
-			g_printerr ("Error adding document: %s\n", error->message);
-			g_error_free (error);
-			goto next_document;
-		}
-
-		g_debug ("Document added");
-		docs_added = TRUE;
-		goto next_document;
-
-	next_document:
-		if (fd_list != NULL)
-			g_object_unref (fd_list);
-		if (request != NULL)
-			g_object_unref (request);
-		if (reply != NULL)
-			g_object_unref (reply);
-	}
-
-	error = NULL;
-
-	if (!docs_added) {
+	if (add_documents (strrchr (job_path, '/') + 1,
+			   (const gchar **) files)) {
 		cancel_job (job_path);
 		goto out;
 	}
@@ -518,6 +522,7 @@ main (int argc, char **argv)
 				      "  get-devices\n"
 				      "  create-printer <name> <device|URI>\n"
 				      "  print-files <name> <files...>\n"
+				      "  add-documents <jobid> <files...>\n"
 				      "  cancel-job <id>\n");
 	g_option_context_add_main_entries (opt_context, opt_entries, NULL);
 	if (!g_option_context_parse (opt_context, &argc, &argv, &error)) {
@@ -627,6 +632,16 @@ main (int argc, char **argv)
 		}
 
 		ret = cancel_job ((const gchar *) argv[2]);
+	} else if (!strcmp (argv[1], "add-documents")) {
+		if (argc < 4) {
+			g_print ("%s",
+				 g_option_context_get_help (opt_context,
+							    TRUE, NULL));
+			goto out;
+		}
+
+		ret = add_documents ((const gchar *) argv[2],
+				     (const gchar **) (argv + 3));
 	} else
 		fprintf (stderr, "Unrecognized command '%s'\n", argv[1]);
 
