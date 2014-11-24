@@ -1,0 +1,15 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+VERSION="$(grep -w VERSION ${top_builddir}/config.h | cut -d\" -f2)"
+Version=$(gdbus call --session \
+		--dest org.freedesktop.printerd \
+		--object-path /org/freedesktop/printerd/Manager \
+		--method org.freedesktop.DBus.Properties.Get \
+			org.freedesktop.printerd.Manager \
+			Version |\
+	cut -d\' -f2)
+
+test "$VERSION" = "$Version"
+result_is $?

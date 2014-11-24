@@ -44,6 +44,7 @@ struct _PdDaemon
 {
 	GObject parent_instance;
 	GDBusConnection *connection;
+	gboolean is_session;
 	GDBusObjectManagerServer *object_manager;
 	PdEngine *engine;
 	PolkitAuthority *authority;
@@ -58,6 +59,7 @@ enum
 {
 	PROP_0,
 	PROP_CONNECTION,
+	PROP_IS_SESSION,
 	PROP_OBJECT_MANAGER,
 };
 
@@ -81,7 +83,9 @@ pd_daemon_finalize (GObject *object)
 	PdDaemon *daemon = PD_DAEMON (object);
 
 	g_debug ("[Daemon] Finalize");
-	g_object_unref (daemon->authority);
+	if (daemon->authority)
+		g_object_unref (daemon->authority);
+
 	g_object_unref (daemon->object_manager);
 	g_object_unref (daemon->connection);
 	g_object_unref (daemon->engine);
@@ -100,6 +104,9 @@ pd_daemon_get_property (GObject *object,
 	switch (prop_id) {
 	case PROP_CONNECTION:
 		g_value_set_object (value, pd_daemon_get_connection (daemon));
+		break;
+	case PROP_IS_SESSION:
+		g_value_set_boolean (value, daemon->is_session);
 		break;
 	case PROP_OBJECT_MANAGER:
 		g_value_set_object (value, pd_daemon_get_object_manager (daemon));
@@ -122,6 +129,9 @@ pd_daemon_set_property (GObject *object,
 		g_assert (daemon->connection == NULL);
 		daemon->connection = g_value_dup_object (value);
 		break;
+	case PROP_IS_SESSION:
+		daemon->is_session = g_value_get_boolean (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -139,11 +149,15 @@ pd_daemon_constructed (GObject *object)
 	PdDaemon *daemon = PD_DAEMON (object);
 	GError *error = NULL;
 
-	daemon->authority = polkit_authority_get_sync (NULL, &error);
-	if (daemon->authority == NULL) {
-		g_error ("Error initializing PolicyKit authority: %s (%s, %d)",
-			 error->message, g_quark_to_string (error->domain), error->code);
-		g_error_free (error);
+	if (daemon->is_session)
+		daemon->authority = NULL;
+	else {
+		daemon->authority = polkit_authority_get_sync (NULL, &error);
+		if (daemon->authority == NULL) {
+			g_error ("Error initializing PolicyKit authority: %s (%s, %d)",
+				 error->message, g_quark_to_string (error->domain), error->code);
+			g_error_free (error);
+		}
 	}
 	daemon->object_manager = g_dbus_object_manager_server_new ("/org/freedesktop/printerd");
 	daemon->engine = pd_engine_new (daemon);
@@ -187,6 +201,21 @@ pd_daemon_class_init (PdDaemonClass *klass)
 							      G_PARAM_STATIC_STRINGS));
 
 	/**
+	 * PdDaemon:is-session:
+	 *
+	 * Whether we are running on the session bus (for testing).
+	 */
+	g_object_class_install_property (gobject_class,
+					 PROP_IS_SESSION,
+					 g_param_spec_boolean ("is-session",
+							       "is-session",
+							       "Whether the daemon is on the session bus",
+							       FALSE,
+							       G_PARAM_READABLE |
+							       G_PARAM_WRITABLE |
+							       G_PARAM_CONSTRUCT_ONLY));
+
+	/**
 	* PdDaemon:object-manager:
 	*
 	* The #GDBusObjectManager used by the daemon
@@ -210,11 +239,13 @@ pd_daemon_class_init (PdDaemonClass *klass)
  * Returns: A #PdDaemon object. Free with g_object_unref().
  */
 PdDaemon *
-pd_daemon_new (GDBusConnection *connection)
+pd_daemon_new (GDBusConnection *connection,
+	       gboolean is_session)
 {
 	g_return_val_if_fail (G_IS_DBUS_CONNECTION (connection), NULL);
 	return PD_DAEMON (g_object_new (PD_TYPE_DAEMON,
 					"connection", connection,
+					"is-session", is_session,
 					NULL));
 }
 
@@ -319,7 +350,12 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 	const gchar *sender;
 	PolkitSubject *subject;
 	PolkitCheckAuthorizationFlags flags;
-	PolkitAuthorizationResult *result;
+	PolkitAuthorizationResult *result = NULL;
+
+	if (daemon->is_session) {
+		ret = TRUE;
+		goto out;
+	}
 
 	sender = g_dbus_method_invocation_get_sender (invocation);
 	subject = polkit_system_bus_name_new (sender);

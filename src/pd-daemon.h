@@ -30,7 +30,8 @@ G_BEGIN_DECLS
 #define PD_IS_DAEMON(o)		(G_TYPE_CHECK_INSTANCE_TYPE ((o), PD_TYPE_DAEMON))
 
 GType				 pd_daemon_get_type		(void) G_GNUC_CONST;
-PdDaemon			*pd_daemon_new			(GDBusConnection *connection);
+PdDaemon			*pd_daemon_new			(GDBusConnection *connection,
+								 gboolean is_session);
 GDBusConnection			*pd_daemon_get_connection	(PdDaemon	*daemon);
 GDBusObjectManagerServer	*pd_daemon_get_object_manager	(PdDaemon	*daemon);
 PolkitAuthority			*pd_daemon_get_authority	(PdDaemon	*daemon);

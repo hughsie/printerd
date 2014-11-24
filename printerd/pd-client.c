@@ -19,6 +19,7 @@
  */
 
 #include "config.h"
+#include <stdlib.h>
 #include <glib/gi18n-lib.h>
 
 #include "pd-client.h"
@@ -339,6 +340,7 @@ initable_init (GInitable     *initable,
   gboolean ret;
   GList *objects, *l;
   GList *interfaces, *ll;
+  GBusType bus = G_BUS_TYPE_SYSTEM;
 
   ret = FALSE;
 
@@ -361,12 +363,15 @@ initable_init (GInitable     *initable,
   if (client->context != NULL)
     g_main_context_ref (client->context);
 
-  client->object_manager = pd_object_manager_client_new_for_bus_sync (G_BUS_TYPE_SYSTEM,
-                                                                          G_DBUS_OBJECT_MANAGER_CLIENT_FLAGS_NONE,
-                                                                          "org.freedesktop.printerd",
-                                                                          "/org/freedesktop/printerd",
-                                                                          cancellable,
-                                                                          &client->initialization_error);
+  if (getenv ("PD_USE_SESSION_BUS") != NULL)
+    bus = G_BUS_TYPE_SESSION;
+
+  client->object_manager = pd_object_manager_client_new_for_bus_sync (bus,
+								      G_DBUS_OBJECT_MANAGER_CLIENT_FLAGS_NONE,
+								      "org.freedesktop.printerd",
+								      "/org/freedesktop/printerd",
+								      cancellable,
+								      &client->initialization_error);
   if (client->object_manager == NULL)
     goto out;
 

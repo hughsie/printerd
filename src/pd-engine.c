@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
  * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,7 +48,6 @@ struct _PdEnginePrivate
 	GHashTable	*path_to_device;
 	GHashTable	*id_to_printer;
 	guint		 next_job_id;
-	GHashTable	*id_to_handle;
 };
 
 enum
@@ -81,11 +81,6 @@ pd_engine_dispose (GObject *object)
 	if (engine->priv->id_to_printer) {
 		g_hash_table_unref (engine->priv->id_to_printer);
 		engine->priv->id_to_printer = NULL;
-	}
-
-	if (engine->priv->id_to_handle) {
-		g_hash_table_unref (engine->priv->id_to_handle);
-		engine->priv->id_to_handle = NULL;
 	}
 
 	if (engine->priv->gudev_client) {
@@ -547,12 +542,6 @@ pd_engine_start	(PdEngine *engine)
 							     g_free,
 							     g_object_unref);
 
-	/* also note which source handles hold a reference to them */
-	engine->priv->id_to_handle = g_hash_table_new_full (g_str_hash,
-							    g_str_equal,
-							    g_free,
-							    (GDestroyNotify) g_variant_unref);
-
 	/* start device scanning (for demo) */
 	devices = g_udev_client_query_by_subsystem (engine->priv->gudev_client,
 						    "usb");
@@ -585,7 +574,6 @@ pd_engine_add_printer	(PdEngine *engine,
 	PdPrinter *printer = NULL;
 	gchar *object_path = NULL;
 	PdDaemon *daemon;
-	guint handle;
 
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 
@@ -627,13 +615,10 @@ pd_engine_add_printer	(PdEngine *engine,
 	g_debug ("[Engine] add printer %s", objid->str);
 
 	/* watch for state changes */
-	handle = g_signal_connect (printer,
-				   "notify::state",
-				   G_CALLBACK (pd_engine_printer_state_notify),
-				   printer);
-	g_hash_table_insert (engine->priv->id_to_handle,
-			     g_strdup (objid->str),
-			     (gpointer) g_variant_ref_sink (g_variant_new_uint32 (handle)));
+	g_signal_connect (printer,
+			  "notify::state",
+			  G_CALLBACK (pd_engine_printer_state_notify),
+			  printer);
 
 	/* export on bus */
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/printer/%s",
@@ -669,7 +654,6 @@ pd_engine_remove_printer	(PdEngine *engine,
 	PdObject *obj = NULL;
 	PdPrinter *printer = NULL;
 	const gchar *id;
-	GVariant *handle;
 
 	obj = pd_daemon_find_object (daemon, printer_path);
 	if (!obj)
@@ -681,13 +665,9 @@ pd_engine_remove_printer	(PdEngine *engine,
 	g_dbus_object_manager_server_unexport (pd_daemon_get_object_manager (daemon),
 					       printer_path);
 	g_hash_table_remove (engine->priv->id_to_printer, id);
-	handle = g_hash_table_lookup (engine->priv->id_to_handle,
-				      id);
-	if (handle) {
-		g_source_remove (g_variant_get_uint32 (handle));
-		g_hash_table_remove (engine->priv->id_to_handle,
-				     id);
-	}
+	g_signal_handlers_disconnect_by_func (printer,
+					      pd_engine_printer_state_notify,
+					      printer);
 
 	g_debug ("[Engine] remove printer %s", id);
 	ret = TRUE;
