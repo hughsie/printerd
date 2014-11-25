@@ -1259,7 +1259,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 			g_error_free (error);
 			goto fail;
 		}
-	
+
 		channel = jp->channel[STDERR_FILENO];
 		jp->io_source[STDERR_FILENO] =
 			g_io_add_watch (channel,
