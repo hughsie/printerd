@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
  * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,6 +72,7 @@ GList		*pd_engine_get_printer_ids	(PdEngine	*engine);
 GList		*pd_engine_get_devices		(PdEngine	*engine);
 void		 pd_engine_start		(PdEngine	*engine);
 PdPrinter	*pd_engine_add_printer		(PdEngine	*engine,
+						 GVariant	*options,
 						 const gchar	*name,
 						 const gchar	*description,
 						 const gchar	*location,

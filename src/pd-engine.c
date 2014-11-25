@@ -568,6 +568,7 @@ pd_engine_start	(PdEngine *engine)
  */
 PdPrinter *
 pd_engine_add_printer	(PdEngine *engine,
+			 GVariant *options,
 			 const gchar *name,
 			 const gchar *description,
 			 const gchar *location,
@@ -578,9 +579,15 @@ pd_engine_add_printer	(PdEngine *engine,
 	PdObjectSkeleton *printer_object = NULL;
 	PdPrinter *printer = NULL;
 	gchar *object_path = NULL;
+	gchar *driver = NULL;
 	PdDaemon *daemon;
 
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
+
+	if (options)
+		g_variant_lookup (options,
+				  "driver-name",
+				  "s", &driver);
 
 	daemon = pd_engine_get_daemon (engine);
 	printer = PD_PRINTER (g_object_new (PD_TYPE_PRINTER_IMPL,
@@ -589,6 +596,7 @@ pd_engine_add_printer	(PdEngine *engine,
 					    "description", description,
 					    "location", location,
 					    "ieee1284-id", ieee1284_id,
+					    "driver", driver ? driver : "",
 					    NULL));
 
 	/* add it to the hash */
@@ -634,6 +642,8 @@ pd_engine_add_printer	(PdEngine *engine,
 					     G_DBUS_OBJECT_SKELETON (printer_object));
 
  out:
+	if (driver)
+		g_free (driver);
 	if (printer_object)
 		g_object_unref (printer_object);
 	g_string_free (objid, TRUE);

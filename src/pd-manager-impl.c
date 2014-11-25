@@ -264,7 +264,8 @@ pd_manager_impl_complete_create_printer (PdManager *_manager,
 	manager_debug (_manager, "Creating printer");
 
 	printer = pd_engine_add_printer (pd_daemon_get_engine (manager->daemon),
-					 name, description, location, NULL);
+					 options, name, description, location,
+					 NULL);
 
 	/* set device URIs */
 	pd_printer_set_device_uris (printer, device_uris);

@@ -262,7 +262,7 @@ pd_device_impl_complete_create_printer (PdDevice *_device,
 	g_debug ("Creating printer from device %s", device->id);
 
 	printer = pd_engine_add_printer (pd_daemon_get_engine (device->daemon),
-					 name, description, location,
+					 NULL, name, description, location,
 					 ieee1284_id);
 
 	/* set device uri */
