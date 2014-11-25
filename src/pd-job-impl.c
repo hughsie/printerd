@@ -1247,6 +1247,10 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		jp->child_fd[PD_FD_SIDE] = pipe_fd[1];
 	}
 
+	/* When the filters have finished, the state will still be
+	   processing (the backend hasn't run yet). */
+	job->pending_job_state = PD_JOB_STATE_PROCESSING;
+
 	/* Run filter chain */
 	pd_job_impl_add_state_reason (job, "job-transforming");
 	for (filter = g_list_first (job->filterchain);
@@ -1268,10 +1272,6 @@ pd_job_impl_start_processing (PdJobImpl *job)
 					pd_job_impl_message_io_cb,
 					jp);
 	}
-
-	/* When the filters have finished, the state will still be
-	   processing (the backend hasn't run yet). */
-	job->pending_job_state = PD_JOB_STATE_PROCESSING;
 
 	/* Don't add an IO watch to the end of the chain yet. Let it
 	 * buffer until the backend has started. */
@@ -1310,6 +1310,9 @@ pd_job_impl_start_sending (PdJobImpl *job)
 			goto out;
 	}
 
+	/* When the backend finishes the job state will be 'completed'. */
+	job->pending_job_state = PD_JOB_STATE_COMPLETED;
+
 	/* Run backend */
 	if (!pd_job_impl_run_process (job, job->backend, &error)) {
 		job_warning (PD_JOB (job), "Running backend: %s",
@@ -1340,9 +1343,6 @@ pd_job_impl_start_sending (PdJobImpl *job)
 				G_IO_HUP,
 				pd_job_impl_message_io_cb,
 				job->backend);
-
-	/* When the backend finished the job state will be 'completed'. */
-	job->pending_job_state = PD_JOB_STATE_COMPLETED;
 
 	/* Now there's somewhere to send the data to, add an IO watch
 	 * to the stdout of the last filter in the chain. */
