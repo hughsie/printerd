@@ -34,6 +34,62 @@ result_is () {
 # Remember where we're up to in printerd's output
 wc -l < "${SESSION_LOG}" > "${BOOKMARK}"
 
+simple_ppd () {
+    tmp="$(mktemp /tmp/printerd.XXXXXXXXXX)"
+    # Create a simple PPD.
+    cat >"$tmp" <<"EOF"
+*PPD-Adobe: "4.3"
+*FormatVersion:	"4.3"
+*FileVersion:	"1.1"
+*LanguageVersion: English
+*LanguageEncoding: ISOLatin1
+*PCFileName:	"CUPSFILTER.PPD"
+*Manufacturer:	"Generic"
+*Product:	"(Generic Printer)"
+*cupsFilter:    "application/vnd.cups-raster 0 -"
+*ModelName:     "Generic Printer"
+*ShortNickName: "Generic Printer"
+*NickName:      "Generic Printer"
+*PSVersion:	"(2017.000) 0"
+*LanguageLevel:	"2"
+*ColorDevice:	True
+*DefaultColorSpace: RGB
+*FileSystem:	False
+*Throughput:	"1"
+*LandscapeOrientation: Plus90
+*VariablePaperSize: False
+*TTRasterizer:	Type42
+*HWMargins: "9 9 9 9"
+
+*OpenUI *PageSize/Page Size: PickOne
+*OrderDependency: 10 AnySetup *PageSize
+*DefaultPageSize: Letter
+*PageSize Letter/Letter:  "<</cupsPageSizeName (1) /PageSize[612 792]/ImagingBBox null>>setpagedevice"
+*PageSize Legal/Legal:    "<</cupsPageSizeName (3) /PageSize[612 1008]/ImagingBBox null>>setpagedevice"
+*PageSize A4/A4:          "<</cupsPageSizeName (2) /PageSize[595 842]/ImagingBBox null>>setpagedevice"
+*CloseUI: *PageSize
+
+*OpenUI *PageRegion/Page Size: PickOne
+*OrderDependency: 10 AnySetup *PageRegion
+*DefaultPageRegion: Letter
+*PageRegion Letter/Letter:  "<</cupsPageSizeName (1) /PageSize[612 792]/ImagingBBox null>>setpagedevice"
+*PageRegion A4/A4:          "<</cupsPageSizeName (2) /PageSize[595 842]/ImagingBBox null>>setpagedevice"
+*PageRegion Legal/Legal:    "<</cupsPageSizeName (3) /PageSize[612 1008]/ImagingBBox null>>setpagedevice"
+*CloseUI: *PageRegion
+
+*DefaultImageableArea: Letter
+*ImageableArea Letter/US Letter:    "9 9 594 756"
+*ImageableArea A4/A4:               "9 9 586.28 833"
+*ImageableArea Legal/Legal:         "9 9 594 999"
+
+*DefaultPaperDimension: Letter
+*PaperDimension Letter/US Letter:   "612 792"
+*PaperDimension A4/A4:              "595 842"
+*PaperDimension Legal/Legal:        "612 1008"
+EOF
+    printf "%s" "$tmp"
+}
+
 sample_pdf () {
     tmp="$(mktemp /tmp/printerd.XXXXXXXXXX)"
     # Create a PDF to print.

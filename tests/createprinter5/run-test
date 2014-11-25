@@ -1,0 +1,72 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+PPD="$(simple_ppd)"
+function finish {
+    rm -f "${PPD}"
+}
+trap finish EXIT
+
+# Create a printer.
+printf "CreatePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.CreatePrinter \
+	       "{'driver-name':<'${PPD}'>}" \
+	       "create-printer5" \
+	       "printer description" \
+	       "printer location" \
+	       '["ipp://remote:631/printers/remote"]' \
+	       "{}")
+
+objpath=$(printf "%s" "$result" | sed -ne "s:^(objectpath '\(.*\)',):\1:p")
+if [ -z "$objpath" ]; then
+    printf "Expected (objectpath): %s\n" "$result"
+    result_is 1
+fi
+
+# Verify the Driver property.
+printf "Examining %s\n" "$objpath"
+if ! diff -u - <(gdbus introspect --session --only-properties \
+		       --dest $PD_DEST \
+		       --object-path "$objpath" | \
+			grep ' = ' | LC_ALL=C sort | \
+			sed \
+			    -e 's,^ *readonly ,,' \
+			    -e '/^b IsDefault /d' \
+			    -e '/^ao ActiveJobs /d' \
+			    -e '/^as DeviceUris /d' \
+			    -e '/as StateReasons /d' \
+			    -e '/a{sv} Defaults /d' \
+			    -e '/a{sv} Supported /d' \
+			    -e '/b IsAcceptingJobs /d' \
+			    -e '/b IsShared /d' \
+			    -e '/s Description /d' \
+			    -e '/s Ieee1284Id /d' \
+			    -e '/s Location /d' \
+			    -e '/s Name /d' \
+			    -e '/u State /d') <<EOF
+s Driver = '${PPD}';
+EOF
+then
+  printf "Driver property differs from expected\n"
+  result_is 1
+fi
+
+# Now delete it.
+printf "DeletePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.DeletePrinter \
+	       "{}" \
+	       "$objpath")
+
+if [ "$result" != "()" ]; then
+    printf "Expected (): %s\n" "$result"
+    result_is 1
+fi
+
+result_is 0
