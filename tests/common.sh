@@ -16,14 +16,17 @@ BOOKMARK="${BOOKMARK-"${top_builddir}/printerd-session.lines-before-test"}"
 SESSION_LOG="${SESSION_LOG-"${top_builddir}"/printerd-session.log}"
 # Call this function to report test results
 result_is () {
+  n=$(cat "${BOOKMARK}")
   if [ "$1" -eq 0 ]; then
-    n=$(cat "${BOOKMARK}")
     if grep -q '\*\*' \
       <(sed -e "1,${n}d" "${SESSION_LOG}"); then
       printf "Warnings/errors in output:\n"
       sed -e "1,${n}d" "${SESSION_LOG}"
       exit 1
     fi
+  else
+    printf "printerd output:\n"
+    sed -e "1,${n}d" "${SESSION_LOG}"
   fi
   exit "$1"
 }
