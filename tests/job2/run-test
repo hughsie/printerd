@@ -1,0 +1,118 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+# Test "file:" output
+
+INPUT_FILE="$(sample_pdf)"
+FILE_TARGET="$(mktemp /tmp/printerd.XXXXXXXXX)"
+function finish {
+    rm -f "$INPUT_FILE" "$FILE_TARGET"
+}
+trap finish EXIT
+
+# Create a printer.
+if ! "$PDCLI" --session create-printer job2 "file://${FILE_TARGET}"; then
+    printf "pd-cli failed\n"
+    result_is 1
+fi
+
+# Create a job on that printer.
+objpath=/org/freedesktop/printerd/printer/job2
+printf "CreateJob\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $objpath \
+	       --method $PD_IFACE.Printer.CreateJob \
+	       '{}' \
+	       'job name' \
+	       '{}')
+if ! diff -u - <(printf "%s\n" "$result" | sed -e 's,[0-9]\+,X,') <<"EOF"
+(objectpath '/org/freedesktop/printerd/job/X', @a{sv} {})
+EOF
+then
+    printf "Unexpected result\n"
+    result_is 1
+fi
+
+# Add a document to it.
+jobpath=$(printf "%s" "$result" | sed -ne "s:^.*'\(.*\)'.*$:\1:p")
+printf "AddDocument\n"
+if ! $PDCLI --session add-documents "${jobpath##*/}" "$INPUT_FILE"; then
+    printf "Failed to add document to job\n"
+    result_is 1
+fi
+
+# Start the job
+printf "Start\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $jobpath \
+	       --method $PD_IFACE.Job.Start \
+	       '{}')
+if [ "$result" != "()" ]; then
+    printf "Failed to start job\n"
+    result_is 1
+fi
+
+# Verify something came out the other end.
+for i in 0.2 0.3 0.5 1 2 3 4 5; do
+    sleep 1
+    if [ -s "$FILE_TARGET" ]; then
+	break
+    fi
+done
+
+stat "$FILE_TARGET"
+if [ ! -s "$FILE_TARGET" ]; then
+    printf "File target is empty\n"
+    result_is 1
+fi
+
+# Inspect its properties
+printf "Examining properties\n"
+if ! diff -u - <(gdbus introspect --session --only-properties \
+		       --dest $PD_DEST \
+		       --object-path "$jobpath" | \
+			grep ' = ' | LC_ALL=C sort | \
+			sed \
+			    -e 's,^ *readonly ,,' \
+			    -e '/u Id /d' \
+			    -e '/a{sv} Attributes /d' \
+			    -e '/s DeviceUri /d') <<EOF
+as StateReasons = [];
+o Printer = '$objpath';
+s Name = 'job name';
+u State = 9;
+EOF
+then
+    printf "Properties differ from expected\n"
+    result_is 1
+fi
+
+# Try to cancel it
+printf "Cancel\n"
+if gdbus call --session \
+	 --dest $PD_DEST \
+	 --object-path $jobpath \
+	 --method $PD_IFACE.Job.Cancel \
+	 '{}' 2>/dev/null; then
+    printf "Expected cancel of completed job to fail\n"
+    result_is 1
+fi
+
+# Delete the printer.
+printf "DeletePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.DeletePrinter \
+	       "{}" \
+	       $objpath)
+
+if [ "$result" != "()" ]; then
+    printf "Expected (): %s\n" "$result"
+    result_is 1
+fi
+
+result_is 0

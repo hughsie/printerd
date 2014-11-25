@@ -2,7 +2,9 @@ language: c
 compiler: gcc
 before_install:
   - sudo apt-get update -qq
-  - sudo apt-get install -qq gnome-common libglib2.0-dev gobject-introspection gtk-doc-tools libgudev-1.0-dev libpolkit-gobject-1-dev libpolkit-agent-1-dev dbus
+  - sudo apt-get install -qq gnome-common libglib2.0-dev gobject-introspection
+    gtk-doc-tools libgudev-1.0-dev libpolkit-gobject-1-dev
+    libpolkit-agent-1-dev dbus cups-filters
   - "export DISPLAY=:99.0"
   - "sh -e /etc/init.d/xvfb start"
 script: ./autogen.sh && DISPLAY=:99.0 make distcheck
