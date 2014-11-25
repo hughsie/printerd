@@ -1235,15 +1235,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	   processing (the backend hasn't run yet). */
 	job->pending_job_state = PD_JOB_STATE_PROCESSING;
 
-	/* Watch the stdout of the last filter in the chain */
-	jp = g_list_first (job->filterchain)->data;
-	channel = jp->channel[STDOUT_FILENO];
-	jp->io_source[STDOUT_FILENO] =
-		g_io_add_watch (channel,
-				G_IO_IN |
-				G_IO_HUP,
-				pd_job_impl_data_io_cb,
-				jp);
+	/* Don't add an IO watch to the end of the chain yet. Let it
+	 * buffer until the backend has started. */
 
  out:
 	if (printer)
@@ -1269,6 +1262,9 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	GError *error = NULL;
 	guint job_id = pd_job_get_id (PD_JOB (job));
 	GIOChannel *channel;
+	struct _PdJobProcess *jp;
+
+	pd_job_impl_add_state_reason (job, "job-outgoing");
 
 	if (!job->filterchain) {
 		pd_job_impl_start_processing (job);
@@ -1278,7 +1274,6 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	}
 
 	/* Run backend */
-	pd_job_impl_add_state_reason (job, "job-outgoing");
 	if (!pd_job_impl_run_process (job, job->backend, &error)) {
 		g_warning ("[Job %u] Running backend: %s",
 			   job_id, error->message);
@@ -1292,6 +1287,7 @@ pd_job_impl_start_sending (PdJobImpl *job)
 
 	job->backend->io_source[STDIN_FILENO] = 0;
 
+	/* Watch for messages from the backend */
 	channel = job->backend->channel[STDOUT_FILENO];
 	job->backend->io_source[STDOUT_FILENO] =
 		g_io_add_watch (channel,
@@ -1310,6 +1306,17 @@ pd_job_impl_start_sending (PdJobImpl *job)
 
 	/* When the backend finished the job state will be 'completed'. */
 	job->pending_job_state = PD_JOB_STATE_COMPLETED;
+
+	/* Now there's somewhere to send the data to, add an IO watch
+	 * to the stdout of the last filter in the chain. */
+	jp = g_list_first (job->filterchain)->data;
+	channel = jp->channel[STDOUT_FILENO];
+	jp->io_source[STDOUT_FILENO] =
+		g_io_add_watch (channel,
+				G_IO_IN |
+				G_IO_HUP,
+				pd_job_impl_data_io_cb,
+				jp);
 
  out:
 	return;
