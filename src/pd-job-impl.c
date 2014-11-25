@@ -860,11 +860,13 @@ run_file_output (gchar **argv,
 	} else if (pid == 0) {
 		gchar **env;
 		gchar *uri = NULL;
+		gchar *options;
 		GInputStream *input;
 		GFile *file;
 		GFileIOStream *fileio = NULL;
 		GOutputStream *output = NULL;
 		GError *error = NULL;
+		guint64 delay = 0;
 		gint ret = 0;
 
 		/* Child */
@@ -873,7 +875,7 @@ run_file_output (gchar **argv,
 		/* Write output to file */
 		for (env = envp; *env; env++)
 			if (!strncmp (*env, "DEVICE_URI=", 11)) {
-				uri = *env + 11;
+				uri = g_strdup (*env + 11);
 				break;
 			}
 
@@ -883,12 +885,62 @@ run_file_output (gchar **argv,
 			exit (1);
 		}
 
+		/* Process any options (for testing) */
+		options = strchr (uri, '?');
+		if (options) {
+			char *next_option;
+			char *option;
+			*options++ = '\0';
+			for (option = options;
+			     option && *option;
+			     option = next_option) {
+				char *opt;
+				char *value;
+				char *end;
+
+				next_option = strchr (option, '&');
+				if (next_option) {
+					end = next_option;
+					*next_option++ = '\0';
+				} else
+					end = option + strlen (option);
+
+				opt = g_uri_unescape_segment (option,
+							      end,
+							      NULL);
+				if (!opt)
+					continue;
+
+				value = strchr (opt, '=');
+				if (!value)
+					value = "true";
+				else
+					*value++ = '\0';
+
+				if (!g_strcmp0 (opt, "wait")) {
+					delay = g_ascii_strtoull (value,
+								  &end,
+								  10);
+					if (delay > G_MAXUINT)
+						delay = G_MAXUINT;
+				}
+
+				g_free (opt);
+			}
+		}
+
 		file = g_file_new_for_uri (uri);
 		fileio = g_file_open_readwrite (file, NULL, &error);
 		if (!fileio) {
 			fprintf (stderr, "ERROR: %s\n", error->message);
 			g_error_free (error);
 			exit (1);
+		}
+
+		if (delay) {
+			fprintf (stderr, "DEBUG: Sleeping for %us\n",
+				 (unsigned int) delay);
+			sleep ((unsigned int) delay);
 		}
 
 		output = g_io_stream_get_output_stream (G_IO_STREAM (fileio));
@@ -918,6 +970,7 @@ run_file_output (gchar **argv,
 		if (input)
 			g_input_stream_close (input, NULL, NULL);
 
+		g_free (uri);
 		exit (ret);
 	}
 
