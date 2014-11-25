@@ -191,6 +191,8 @@ pd_get_unix_user (GDBusMethodInvocation *invocation)
 	}
 
  out:
+	if (dbus_proxy)
+		g_object_unref (dbus_proxy);
 	if (uid_reply)
 		g_variant_unref (uid_reply);
 	if (uid)

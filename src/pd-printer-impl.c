@@ -355,6 +355,7 @@ pd_printer_impl_do_update_defaults (PdPrinterImpl *printer,
 		printer_debug (PD_PRINTER (printer),
 			       "Defaults: set %s=%s",
 			       key, val);
+		g_free (val);
 	}
 
 	current_defaults = pd_printer_get_defaults (PD_PRINTER (printer));

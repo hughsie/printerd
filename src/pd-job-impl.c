@@ -969,6 +969,8 @@ run_file_output (gchar **argv,
 		if (input)
 			g_input_stream_close (input, NULL, NULL);
 
+		g_object_unref (fileio);
+		g_object_unref (file);
 		g_free (uri);
 		exit (ret);
 	}

@@ -211,6 +211,7 @@ pd_manager_impl_get_printers (PdManager *_manager,
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_builder_end (&builder));
 	g_string_free (path, TRUE);
+	g_list_free (printer_ids);
 	return TRUE; /* handled the method invocation */
 }
 

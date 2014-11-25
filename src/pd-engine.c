@@ -848,7 +848,7 @@ pd_engine_printer_state_notify	(PdPrinter *printer)
  * pd_engine_get_printer_ids:
  * @engine: A #PdEngine.
  *
- * Returns a newly-allocated list of printer IDs.  Use g_free_list()
+ * Returns a newly-allocated list of printer IDs.  Use g_list_free()
  * when done; do not free or modify the content.
  */
 GList *
@@ -862,7 +862,7 @@ pd_engine_get_printer_ids	(PdEngine *engine)
  * pd_engine_get_devices:
  * @engine: A #PdEngine.
  *
- * Returns a newly-allocated list of Devices.  Use g_free_list()
+ * Returns a newly-allocated list of Devices.  Use g_list_free()
  * when done and g_object_unref() on the content.
  */
 GList *
