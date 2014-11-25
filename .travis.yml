@@ -7,4 +7,6 @@ before_install:
     libpolkit-agent-1-dev dbus cups-filters
   - "export DISPLAY=:99.0"
   - "sh -e /etc/init.d/xvfb start"
-script: ./autogen.sh && DISPLAY=:99.0 make distcheck
+script: ./autogen.sh --disable-systemd &&
+        DISPLAY=:99.0 make distcheck
+        DISTCHECK_CONFIGURE_FLAGS="--disable-introspection --disable-systemd"

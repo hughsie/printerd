@@ -29,6 +29,7 @@
 #include "pd-engine.h"
 #include "pd-device-impl.h"
 #include "pd-printer-impl.h"
+#include "pd-log.h"
 
 /**
  * SECTION:pdmanager
@@ -198,7 +199,7 @@ pd_manager_impl_get_printers (PdManager *_manager,
 	GVariantBuilder builder;
 	GString *path = g_string_new ("");
 
-	g_debug ("[Manager] Handling GetPrinters");
+	manager_debug (_manager, "Handling GetPrinters");
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("(ao)"));
 	g_variant_builder_open (&builder, G_VARIANT_TYPE ("ao"));
 	for (each = printer_ids; each; each = g_list_next (each)) {
@@ -226,7 +227,7 @@ pd_manager_impl_get_devices (PdManager *_manager,
 	GVariantBuilder builder;
 	GString *path = g_string_new ("");
 
-	g_debug ("[Manager] Handling GetDevices");
+	manager_debug (_manager, "Handling GetDevices");
 	g_variant_builder_init (&builder, G_VARIANT_TYPE ("(ao)"));
 	g_variant_builder_open (&builder, G_VARIANT_TYPE ("ao"));
 	for (each = devices; each; each = g_list_next (each)) {
@@ -259,7 +260,7 @@ pd_manager_impl_complete_create_printer (PdManager *_manager,
 	PdPrinter *printer;
 	gchar *path;
 
-	g_debug ("[Manager] Creating printer");
+	manager_debug (_manager, "Creating printer");
 
 	printer = pd_engine_add_printer (pd_daemon_get_engine (manager->daemon),
 					 name, description, location, NULL);
@@ -326,13 +327,13 @@ pd_manager_impl_delete_printer (PdManager *_manager,
 	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
 	PdEngine *engine = pd_daemon_get_engine (manager->daemon);
 
-	g_debug ("[Manager] Deleting printer %s", printer_path);
+	manager_debug (_manager, "Deleting printer %s", printer_path);
 
 	if (pd_engine_remove_printer (engine, printer_path))
 		g_dbus_method_invocation_return_value (invocation,
 						       g_variant_new ("()"));
 	else {
-		g_debug ("[Manager] Printer %s not found", printer_path);
+		manager_debug (_manager, "Printer %s not found", printer_path);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,

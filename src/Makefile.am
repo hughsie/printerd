@@ -15,6 +15,7 @@ AM_CPPFLAGS = \
 	$(GUDEV_CFLAGS) 					\
 	$(GLIB_CFLAGS) 						\
 	$(GIO_CFLAGS)						\
+	$(SYSTEMD_CFLAGS)					\
 	$(WARN_CFLAGS)						\
 	$(NULL)
 
@@ -53,6 +54,7 @@ libprinterddaemon_la_SOURCES =					\
 	pd-printer-impl.c					\
 	pd-job-impl.h						\
 	pd-job-impl.c						\
+	pd-log.h						\
 	$(BUILT_SOURCES)
 
 libprinterddaemon_la_CFLAGS =					\
@@ -88,6 +90,7 @@ printerd_LDADD = 						\
 	$(GLIB_LIBS)						\
 	$(GIO_LIBS)						\
 	libprinterddaemon.la					\
+	$(SYSTEMD_LIBS)						\
 	$(NULL)
 
 # ----------------------------------------------------------------------

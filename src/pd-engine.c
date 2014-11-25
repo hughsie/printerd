@@ -31,6 +31,7 @@
 #include "pd-device-impl.h"
 #include "pd-printer-impl.h"
 #include "pd-job-impl.h"
+#include "pd-log.h"
 
 /**
  * SECTION:printerdengine
@@ -70,7 +71,7 @@ pd_engine_dispose (GObject *object)
 {
 	PdEngine *engine = PD_ENGINE (object);
 
-	g_debug ("[Engine] Dispose");
+	engine_debug (engine, "Dispose");
 
 	/* note: we don't hold a ref to engine->priv->daemon */
 	if (engine->priv->path_to_device) {
@@ -145,7 +146,7 @@ pd_engine_device_remove (PdEngine *engine,
 	daemon = pd_engine_get_daemon (engine);
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/device/%s",
 				       pd_device_impl_get_id (PD_DEVICE_IMPL (device)));
-	g_debug ("[Engine] remove device %s", object_path);
+	engine_debug (engine, "remove device %s", object_path);
 	g_dbus_object_manager_server_unexport (pd_daemon_get_object_manager (daemon),
 					       object_path);
 	g_free (object_path);
@@ -171,14 +172,16 @@ pd_engine_device_add (PdEngine *engine,
 	/* get the IEEE1284 ID from the interface device */
 	ieee1284_id = g_udev_device_get_sysfs_attr (udevdevice, "ieee1284_id");
 	if (ieee1284_id == NULL) {
-		g_warning ("failed to get IEEE1284 from %s (perhaps no usblp?)",
-			   g_udev_device_get_sysfs_path (udevdevice));
+		engine_warning (engine,
+				"failed to get IEEE1284 from %s "
+				"(perhaps no usblp?)",
+				g_udev_device_get_sysfs_path (udevdevice));
 		goto out;
 	}
 
 	ieee1284_id_fields = pd_parse_ieee1284_id (ieee1284_id);
 	if (ieee1284_id_fields == NULL) {
-		g_warning ("failed to parse IEEE1284 Device ID");
+		engine_warning (engine, "failed to parse IEEE1284 Device ID");
 		goto out;
 	}
 
@@ -210,7 +213,7 @@ pd_engine_device_add (PdEngine *engine,
 					  "uri", uri->str,
 					  "description", description->str,
 					  NULL));
-	g_debug ("[Engine] add device %s [%s]", uri->str, ieee1284_id);
+	engine_debug (engine, "add device %s [%s]", uri->str, ieee1284_id);
 
 	/* export on bus */
 	id = pd_device_impl_get_id (PD_DEVICE_IMPL (device));
@@ -359,8 +362,9 @@ pd_engine_start_job	(PdPrinter *printer,
 				       "job-outgoing",
 				       &job_outgoing);
 
-		g_debug ("[Engine] Job %u ready to start sending to printer",
-			 pd_job_get_id (job));
+		engine_debug (engine,
+			      "Job %u ready to start sending to printer",
+			      pd_job_get_id (job));
 
 		/* Watch the job-outgoing state reason for this job */
 		g_signal_connect (job,
@@ -392,9 +396,9 @@ pd_engine_job_state_notify	(PdJob *job)
 	g_return_if_fail (PD_IS_JOB (job));
 
 	job_state = pd_job_get_state (job);
-	g_debug ("[Engine] Job %u changed state: %s",
-		 pd_job_get_id (job),
-		 pd_job_state_as_string (job_state));
+	engine_debug (NULL, "Job %u changed state: %s",
+		      pd_job_get_id (job),
+		      pd_job_state_as_string (job_state));
 
 	daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
 	printer_path = pd_job_get_printer (job);
@@ -410,9 +414,10 @@ pd_engine_job_state_notify	(PdJob *job)
 		/* This is a now candidate for processing. */
 
 		if (printer_state == PD_PRINTER_STATE_IDLE) {
-			g_debug ("[Engine] Printer for job %u idle "
-				 "so starting job",
-				 pd_job_get_id (job));
+			engine_debug (NULL,
+				      "Printer for job %u idle "
+				      "so starting job",
+				      pd_job_get_id (job));
 			pd_engine_start_job (printer, job);
 		}
 
@@ -460,13 +465,13 @@ pd_engine_job_state_reasons_notify	(PdJob *job)
 	g_value_set_boolean (&job_outgoing, FALSE);
 
 	state_reasons = pd_job_get_state_reasons (PD_JOB (job));
-	g_debug ("[Engine] Job %u changed state reasons", job_id);
+	engine_debug (NULL, "Job %u changed state reasons", job_id);
 	for (i = 0; state_reasons[i] != NULL; i++)
 		if (!strcmp (state_reasons[i], "job-outgoing"))
 			break;
 
 	if (state_reasons[i] == NULL) {
-		g_debug ("[Engine] Job %u no longer outgoing", job_id);
+		engine_debug (NULL, "Job %u no longer outgoing", job_id);
 
 		daemon = pd_job_impl_get_daemon (PD_JOB_IMPL (job));
 		printer_path = pd_job_get_printer (job);
@@ -591,7 +596,7 @@ pd_engine_add_printer	(PdEngine *engine,
 	if (g_hash_table_lookup (engine->priv->id_to_printer, id) != NULL) {
 		/* collision so choose another id */
 		unsigned int i;
-		g_debug ("[Engine] add printer %s - collision", id);
+		engine_debug (engine, "add printer %s - collision", id);
 		for (i = 2; i < 1000; i++) {
 			objid = g_string_new (id);
 			g_string_append_printf (objid, "_%d", i);
@@ -612,7 +617,7 @@ pd_engine_add_printer	(PdEngine *engine,
 	g_hash_table_insert (engine->priv->id_to_printer,
 			     g_strdup (objid->str),
 			     (gpointer) printer);
-	g_debug ("[Engine] add printer %s", objid->str);
+	engine_debug (engine, "add printer %s", objid->str);
 
 	/* watch for state changes */
 	g_signal_connect (printer,
@@ -669,7 +674,7 @@ pd_engine_remove_printer	(PdEngine *engine,
 					      pd_engine_printer_state_notify,
 					      printer);
 
-	g_debug ("[Engine] remove printer %s", id);
+	engine_debug (engine, "remove printer %s", id);
 	ret = TRUE;
 
  out:
@@ -743,7 +748,7 @@ pd_engine_add_job	(PdEngine *engine,
 	/* export on bus */
 	object_path = g_strdup_printf ("/org/freedesktop/printerd/job/%u",
 				       job_id);
-	g_debug ("[Engine] New job path is %s", object_path);
+	engine_debug (engine, "New job path is %s", object_path);
 	job_object = pd_object_skeleton_new (object_path);
 	pd_object_skeleton_set_job (job_object, job);
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
@@ -787,7 +792,7 @@ pd_engine_remove_job	(PdEngine *engine,
 					      pd_engine_job_state_notify,
 					      job);
 
-	g_debug ("[Engine] remove job %u", job_id);
+	engine_debug (engine, "remove job %u", job_id);
 	ret = TRUE;
 
  out:
@@ -815,9 +820,9 @@ pd_engine_printer_state_notify	(PdPrinter *printer)
 
 	g_return_if_fail (PD_IS_PRINTER (printer));
 
-	g_debug ("[Engine] Printer %s changed state: %s",
-		 pd_printer_impl_get_id (PD_PRINTER_IMPL (printer)),
-		 pd_printer_state_as_string (pd_printer_get_state (printer)));
+	engine_debug (NULL, "Printer %s changed state: %s",
+		      pd_printer_impl_get_id (PD_PRINTER_IMPL (printer)),
+		      pd_printer_state_as_string (pd_printer_get_state (printer)));
 
 	if (pd_printer_get_state (printer) != PD_PRINTER_STATE_IDLE)
 		/* Already busy */
@@ -830,8 +835,9 @@ pd_engine_printer_state_notify	(PdPrinter *printer)
 	g_assert (pd_job_get_state (job) == PD_JOB_STATE_PENDING);
 
 	job_id = pd_job_get_id (job);
-	g_debug ("[Engine] Job %u now ready to start processing",
-		 job_id);
+	engine_debug (NULL,
+		      "Job %u now ready to start processing",
+		      job_id);
 	pd_engine_start_job (printer, job);
  out:
 	if (job)

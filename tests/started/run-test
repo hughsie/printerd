@@ -4,4 +4,14 @@
 
 # Just check the logs since start-up for warnings/errors.
 printf 0 > "${BOOKMARK}"
+
+# Is the service running?
+PID=$(cat "${top_builddir}/printerd-session.pid")
+if ! kill -0 "$PID" 2>/dev/null; then
+    rm "${top_builddir}/printerd-session.pid"
+    printf "printerd should be running but is not, log follows:\n"
+    cat "${top_builddir}/printerd-session.log"
+    result_is 1
+fi
+
 result_is 0
