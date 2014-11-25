@@ -267,8 +267,7 @@ pd_job_impl_constructed (GObject *object)
 {
 	PdJobImpl *job = PD_JOB_IMPL (object);
 
-	/* Watch our own state so we can start processing jobs when
-	   entering state PD_JOB_STATE_PROCESSING. */
+	/* Watch our own state so we can update job state reasons. */
 	g_signal_connect (job,
 			  "notify::state",
 			  G_CALLBACK (pd_job_impl_job_state_notify),
@@ -1367,15 +1366,6 @@ pd_job_impl_job_state_notify (PdJobImpl *job)
 	   starts/stop things accordingly. */
 
 	switch (pd_job_get_state (PD_JOB (job))) {
-	case PD_JOB_STATE_PROCESSING:
-		/* Job has moved to processing state. */
-
-		if (job->filterchain == NULL)
-			/* Not running it yet, so do that. */
-			pd_job_impl_start_processing (job);
-
-		break;
-
 	case PD_JOB_STATE_CANCELED:
 	case PD_JOB_STATE_ABORTED:
 	case PD_JOB_STATE_COMPLETED:
