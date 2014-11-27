@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
  * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2014 Tim Waugh <twaugh@redhat.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -33,6 +34,7 @@ G_BEGIN_DECLS
  * PdError:
  * @PD_ERROR_FAILED: The operation failed.
  * @PD_ERROR_CANCELLED: The operation was cancelled.
+ * @PD_ERROR_UNIMPLEMENTED: The operation is not implemented.
  *
  * Error codes for the #PD_ERROR error domain and the
  * corresponding D-Bus error names.
@@ -40,10 +42,11 @@ G_BEGIN_DECLS
 typedef enum
 {
   PD_ERROR_FAILED,                     /* org.freedesktop.printerd.Error.Failed */
-  PD_ERROR_CANCELLED                   /* org.freedesktop.printerd.Error.Cancelled */
+  PD_ERROR_CANCELLED,                  /* org.freedesktop.printerd.Error.Cancelled */
+  PD_ERROR_UNIMPLEMENTED,	       /* org.freedesktop.printerd.Error.Unimplemented */
 } PdError;
 
-#define PD_ERROR_NUM_ENTRIES  (PD_ERROR_CANCELLED + 1)
+#define PD_ERROR_NUM_ENTRIES  (PD_ERROR_UNIMPLEMENTED + 1)
 
 G_END_DECLS
 

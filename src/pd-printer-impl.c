@@ -746,9 +746,53 @@ pd_printer_impl_create_job (PdPrinter *_printer,
 }
 
 static void
+pd_printer_impl_handle_complete_update_driver (PdPrinter *_printer,
+					       GDBusMethodInvocation *invocation,
+					       GVariant *arg_options)
+{
+	gchar *driver = NULL;
+	g_variant_lookup (arg_options, "driver-name", "&s", &driver);
+	if (!driver) {
+		/* Should never happen */
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_FAILED,
+						       N_("Internal error"));
+		return;
+	}
+
+	pd_printer_set_driver (_printer, driver);
+	g_dbus_method_invocation_return_value (invocation, NULL);
+}
+
+static gboolean
+pd_printer_impl_handle_update_driver (PdPrinter *_printer,
+				      GDBusMethodInvocation *invocation,
+				      GVariant *arg_options)
+{
+	gchar *driver;
+	if (!g_variant_lookup (arg_options,
+			       "driver-name",
+			       "&s",
+			       &driver)) {
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_UNIMPLEMENTED,
+						       N_("UpdateDriver without driver-name specified is not implemented"));
+		return TRUE; /* handled the method invocation */
+	}
+
+	pd_printer_impl_handle_complete_update_driver (_printer,
+						       invocation,
+						       arg_options);
+	return TRUE;
+}
+
+static void
 pd_printer_iface_init (PdPrinterIface *iface)
 {
 	iface->handle_set_device_uris = pd_printer_impl_set_device_uris;
 	iface->handle_update_defaults = pd_printer_impl_update_defaults;
 	iface->handle_create_job = pd_printer_impl_create_job;
+	iface->handle_update_driver = pd_printer_impl_handle_update_driver;
 }

@@ -43,8 +43,7 @@ TESTS = \
 	tests/stop-session-service/run-test
 
 XFAIL_TESTS = \
-	tests/createprinter3/run-test \
-	tests/updatedriver1/run-test
+	tests/createprinter3/run-test
 
 DISTCLEANFILES = \
 	$(TEST_SESSION_LOG) \
