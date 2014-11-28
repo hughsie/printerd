@@ -57,6 +57,15 @@ PKG_CHECK_MODULES(POLKIT_AGENT_1, [polkit-agent-1 >= 0.92])
 AC_SUBST(POLKIT_AGENT_1_CFLAGS)
 AC_SUBST(POLKIT_AGENT_1_LIBS)
 
+AC_PATH_PROG(CUPS_CONFIG, cups-config, no)
+if test "x$CUPS_CONFIG" = xno; then
+  AC_MSG_ERROR([Please install cups development package])
+fi
+CUPS_CFLAGS="`$CUPS_CONFIG --cflags`"
+CUPS_LIBS="`$CUPS_CONFIG --libs`"
+AC_SUBST(CUPS_CFLAGS)
+AC_SUBST(CUPS_LIBS)
+
 # systemd
 AC_ARG_ENABLE(systemd,
               AS_HELP_STRING([--enable-systemd],[enable systemd [default=yes]]),

@@ -260,12 +260,19 @@ pd_manager_impl_complete_create_printer (PdManager *_manager,
 	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
 	PdPrinter *printer;
 	gchar *path;
+	GError *error = NULL;
 
 	manager_debug (_manager, "Creating printer");
 
 	printer = pd_engine_add_printer (pd_daemon_get_engine (manager->daemon),
 					 options, name, description, location,
-					 NULL);
+					 NULL, &error);
+
+	if (printer == NULL) {
+		manager_debug (_manager, "Error: %s", error->message);
+		g_dbus_method_invocation_return_gerror (invocation, error);
+		return;
+	}
 
 	/* set device URIs */
 	pd_printer_set_device_uris (printer, device_uris);

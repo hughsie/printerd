@@ -21,8 +21,12 @@
 
 #include "config.h"
 
+#include <stdlib.h>
+
 #include <glib.h>
 #include <glib/gi18n.h>
+
+#include <cups/ppd.h>
 
 #include "pd-common.h"
 #include "pd-printer-impl.h"
@@ -56,6 +60,7 @@ struct _PdPrinterImpl
 	gboolean		 job_outgoing;
 
 	gchar			*id;
+	gchar			*final_content_type;
 };
 
 struct _PdPrinterImplClass
@@ -126,6 +131,9 @@ pd_printer_impl_finalize (GObject *object)
 			     printer);
 	g_ptr_array_free (printer->jobs, TRUE);
 	g_free (printer->id);
+	if (printer->final_content_type)
+		g_free (printer->final_content_type);
+
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -311,6 +319,62 @@ pd_printer_impl_get_daemon (PdPrinterImpl *printer)
 {
 	g_return_val_if_fail (PD_IS_PRINTER_IMPL (printer), NULL);
 	return printer->daemon;
+}
+
+gboolean
+pd_printer_impl_set_driver (PdPrinterImpl *printer,
+			    const gchar *driver)
+{
+	ppd_file_t *ppd;
+	ppd_attr_t *cupsFilter;
+	gchar *best_format = NULL;
+	int best_cost;
+
+	if (driver == NULL)
+		return FALSE;
+
+	if ((ppd = ppdOpenFile (driver)) == NULL) {
+		printer_debug (PD_PRINTER (printer), "Unable to open PPD");
+		return FALSE;
+	}
+
+	cupsFilter = ppdFindAttr (ppd, "cupsFilter", NULL);
+	while (cupsFilter) {
+		int cost;
+		gchar **tokens = g_strsplit_set (cupsFilter->value,
+						 " \t",
+						 3);
+		if (!tokens[0] || !tokens[1] || !tokens[2])
+			goto next;
+
+		cost = atoi (tokens[1]);
+		printer_debug (PD_PRINTER (printer), "Filter: %s (cost %d)",
+			       tokens[0], cost);
+		if (!best_format || cost < best_cost) {
+			if (best_format)
+				g_free (best_format);
+
+			best_format = g_strdup (tokens[0]);
+			best_cost = cost;
+		}
+	next:
+		g_strfreev (tokens);
+		cupsFilter = ppdFindNextAttr (ppd, "cupsFilter", NULL);
+	}
+
+	if (!best_format)
+		best_format = g_strdup ("application/vnd.cups-pdf");
+
+	if (printer->final_content_type)
+		g_free (printer->final_content_type);
+
+	printer_debug (PD_PRINTER (printer), "Set final content type to %s",
+		       best_format);
+	printer->final_content_type = best_format;
+
+	ppdClose (ppd);
+	pd_printer_set_driver (PD_PRINTER (printer), driver);
+	return TRUE;
 }
 
 static GVariant *
@@ -761,7 +825,7 @@ pd_printer_impl_handle_complete_update_driver (PdPrinter *_printer,
 		return;
 	}
 
-	pd_printer_set_driver (_printer, driver);
+	pd_printer_impl_set_driver (PD_PRINTER_IMPL (_printer), driver);
 	g_dbus_method_invocation_return_value (invocation, NULL);
 }
 

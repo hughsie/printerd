@@ -572,7 +572,8 @@ pd_engine_add_printer	(PdEngine *engine,
 			 const gchar *name,
 			 const gchar *description,
 			 const gchar *location,
-			 const gchar *ieee1284_id)
+			 const gchar *ieee1284_id,
+			 GError **error)
 {
 	const gchar *id;
 	GString *objid = NULL;
@@ -584,11 +585,6 @@ pd_engine_add_printer	(PdEngine *engine,
 
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 
-	if (options)
-		g_variant_lookup (options,
-				  "driver-name",
-				  "s", &driver);
-
 	daemon = pd_engine_get_daemon (engine);
 	printer = PD_PRINTER (g_object_new (PD_TYPE_PRINTER_IMPL,
 					    "daemon", daemon,
@@ -596,8 +592,28 @@ pd_engine_add_printer	(PdEngine *engine,
 					    "description", description,
 					    "location", location,
 					    "ieee1284-id", ieee1284_id,
-					    "driver", driver ? driver : "",
 					    NULL));
+
+	if (printer == NULL) {
+		*error = g_error_new (PD_ERROR,
+				      PD_ERROR_FAILED,
+				      N_("Out of memory"));
+		return NULL;
+	}
+
+	if (options)
+		g_variant_lookup (options,
+				  "driver-name",
+				  "s", &driver);
+
+	if (driver && !pd_printer_impl_set_driver (PD_PRINTER_IMPL (printer),
+						   driver)) {
+		*error = g_error_new (PD_ERROR,
+				      PD_ERROR_FAILED,
+				      N_("Error setting driver"));
+		g_free (driver);
+		return NULL;
+	}
 
 	/* add it to the hash */
 	id = pd_printer_impl_get_id (PD_PRINTER_IMPL (printer));

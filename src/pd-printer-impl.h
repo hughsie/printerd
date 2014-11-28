@@ -59,6 +59,8 @@ void		 pd_printer_impl_remove_state_reason (PdPrinterImpl *printer,
 						      const gchar *reason);
 const gchar	*pd_printer_impl_get_uri	(PdPrinterImpl	*printer);
 PdJob		*pd_printer_impl_get_next_job	(PdPrinterImpl	*printer);
+gboolean	 pd_printer_impl_set_driver (PdPrinterImpl *printer,
+					     const gchar *driver);
 
 G_END_DECLS
 

@@ -64,6 +64,7 @@ libprinterddaemon_la_CFLAGS =					\
 	$(GIO_CFLAGS)						\
 	$(GUDEV_CFLAGS)						\
 	$(POLKIT_GOBJECT_1_CFLAGS) 				\
+	$(CUPS_CFLAGS)						\
 	$(NULL)
 
 libprinterddaemon_la_LIBADD =					\
@@ -71,6 +72,7 @@ libprinterddaemon_la_LIBADD =					\
 	$(GIO_LIBS)						\
 	$(GUDEV_LIBS)						\
 	$(POLKIT_GOBJECT_1_LIBS) 				\
+	$(CUPS_LIBS)						\
 	$(top_builddir)/printerd/libprinterd.la			\
 	$(NULL)
 
