@@ -54,7 +54,7 @@ if ! diff -u - <(gdbus introspect --session --only-properties \
 			    -e 's,};$,,' \
 			    -e 's:>, :>\n:g' | \
 			LC_ALL=C sort) << "EOF"
-'document-format': <'application/pdf'>
+'document-format': <'application/octet-stream'>
 'media': <'na-letter'>
 'print-quality': <5>
 EOF

@@ -34,7 +34,7 @@ if ! diff -u - <(gdbus introspect --session --only-properties \
 ao ActiveJobs = [];
 as DeviceUris = ['ipp://remote:631/printers/remote'];
 as StateReasons = [];
-a{sv} Defaults = {'media': <'iso-a4'>, 'document-format': <'application/pdf'>};
+a{sv} Defaults = {'media': <'iso-a4'>, 'document-format': <'application/octet-stream'>};
 a{sv} Supported = {'media': <['iso-a4', 'na-letter']>, 'document-format': <['application/pdf']>};
 b IsAcceptingJobs = false;
 b IsShared = false;

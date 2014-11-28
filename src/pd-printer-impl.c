@@ -194,7 +194,7 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 	/* set initial printer description attributes */
 	g_variant_builder_add (&builder, "{sv}",
 			       "document-format",
-			       g_variant_new ("s", "application/pdf"));
+			       g_variant_new ("s", "application/octet-stream"));
 
 	pd_printer_set_defaults (PD_PRINTER (printer),
 				 g_variant_builder_end (&builder));

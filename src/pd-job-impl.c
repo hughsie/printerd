@@ -1542,10 +1542,6 @@ pd_job_impl_start (PdJob *_job,
 	GVariant *attr_user;
 	gchar *requesting_user = NULL;
 	const gchar *originating_user = NULL;
-	gchar *content_type;
-	gboolean type_uncertain = FALSE;
-	guchar data[2048];
-	gssize data_size;
 
 	/* Check if the user is authorized to start a job */
 	if (!pd_daemon_check_authorization_sync (job->daemon,
@@ -1622,9 +1618,35 @@ pd_job_impl_start (PdJob *_job,
 	if (!g_input_stream_close (input, NULL, &error))
 		goto fail;
 
-	/* Work out mime type of input */
+	/* If document-format unset, use the printer's document-format
+	 * default */
 	if (!job->document_mimetype) {
-		job_debug (PD_JOB (job), "Determining MIME type");
+		const gchar *printer_path = pd_job_get_printer (PD_JOB (job));
+		PdEngine *engine;
+		PdPrinter *printer;
+		GVariant *defaults = NULL;
+		engine = pd_daemon_get_engine (job->daemon);
+		printer = pd_engine_get_printer_by_path (engine,
+							 printer_path);
+		if (printer)
+			defaults = pd_printer_get_defaults (printer);
+
+		if (defaults)
+			g_variant_lookup (defaults, "document-format", "s",
+					  &job->document_mimetype);
+
+		if (printer)
+			g_object_unref (printer);
+	}
+
+	/* If auto-sensing is requested, work out mime type of input */
+	if (!g_strcmp0 (job->document_mimetype, "application/octet-stream")) {
+		guchar data[2048];
+		gssize data_size;
+		gchar *content_type;
+		gboolean type_uncertain = FALSE;
+
+		job_debug (PD_JOB (job), "Auto-sensing MIME type");
 		lseek (spoolfd, 0, SEEK_SET);
 		g_object_unref (input);
 		input = g_unix_input_stream_new (spoolfd,
@@ -1650,11 +1672,17 @@ pd_job_impl_start (PdJob *_job,
 		}
 	}
 
+	if (!job->document_mimetype) {
+		job_debug (PD_JOB (job), "Aborting due to unknown MIME type");
+		goto unsupported_doctype;
+	}
+
 	job_debug (PD_JOB (job), "MIME type: %s", job->document_mimetype);
 
 	/* Check we're dealing with a MIME type we can handle */
-	if (g_strcmp0 (job->document_mimetype, "application/pdf")) {
+	if (strcmp (job->document_mimetype, "application/pdf")) {
 		job_debug (PD_JOB (job), "Unsupported MIME type, aborting");
+	unsupported_doctype:
 		pd_job_impl_do_cancel_with_reason (job,
 						   PD_JOB_STATE_ABORTED,
 						   "job-aborted-by-system");
