@@ -58,6 +58,7 @@ typedef enum
 {
 	FILTERCHAIN_CMD,
 	FILTERCHAIN_FILE_OUTPUT,
+	FILTERCHAIN_CUPSFILTER
 } PdJobProcessType;
 
 struct _PdJobProcess
@@ -367,6 +368,28 @@ pd_job_impl_get_daemon (PdJobImpl *job)
 {
 	g_return_val_if_fail (PD_IS_JOB_IMPL (job), NULL);
 	return job->daemon;
+}
+
+/**
+ * pd_job_impl_get_printer:
+ * @job: A #PdJobImpl.
+ *
+ * Gets the printer the @job is for.
+ *
+ * Returns: (transfer full): A #PdPrinter. The returned value should
+ * be freed with g_object_unref().
+ */
+static PdPrinter *
+pd_job_impl_get_printer (PdJobImpl *job)
+{
+	const gchar *printer_path;
+	PdEngine *engine;
+	PdPrinter *printer;
+
+	printer_path = pd_job_get_printer (PD_JOB (job));
+	engine = pd_daemon_get_engine (job->daemon);
+	printer = pd_engine_get_printer_by_path (engine, printer_path);
+	return printer;
 }
 
 static gboolean
@@ -795,11 +818,13 @@ pd_job_impl_create_pipe_for (PdJobImpl *job,
 			     gint fd,
 			     gboolean out)
 {
+	GError *error = NULL;
 	gint pipe_fd[2];
 
-	if (pipe (pipe_fd) != 0) {
+	if (!g_unix_open_pipe (pipe_fd, 0, &error)) {
 		job_warning (PD_JOB (job), "Failed to create pipe: %s",
-			     g_strerror (errno));
+			     error->message);
+		g_error_free (error);
 		return FALSE;
 	}
 
@@ -999,6 +1024,74 @@ run_file_output (gchar **argv,
 }
 
 static gboolean
+run_cupsfilter (PdJobImpl *job,
+		gchar **envp,
+		GSpawnChildSetupFunc child_setup,
+		gpointer user_data,
+		GPid *child_pid,
+		GError **error)
+{
+	PdPrinter *printer;
+	const gchar *driver;
+	const gchar *final_content_type;
+	gboolean ret;
+	char **argv;
+	gchar **s;
+
+	if ((printer = pd_job_impl_get_printer (PD_JOB_IMPL (job))) == NULL) {
+		*error = g_error_new (PD_ERROR,
+				      PD_ERROR_FAILED,
+				      "no printer for job");
+		return FALSE;
+	}
+
+	driver = pd_printer_get_driver (printer);
+	if (driver == NULL) {
+		*error = g_error_new (PD_ERROR,
+				      PD_ERROR_FAILED,
+				      "no driver for printer");
+		g_object_unref (printer);
+		return FALSE;
+	}
+
+	final_content_type = pd_printer_impl_get_final_content_type (PD_PRINTER_IMPL (printer));
+	if (final_content_type == NULL) {
+		*error = g_error_new (PD_ERROR,
+				      PD_ERROR_FAILED,
+				      "no final content type for printer");
+		g_object_unref (printer);
+		return FALSE;
+	}
+
+	g_object_unref (printer);
+
+	argv = g_malloc (sizeof (char *) * 8);
+	argv[0] = g_strdup ("/usr/sbin/cupsfilter");
+	argv[1] = g_strdup ("-p");
+	argv[2] = g_strdup (driver);
+	argv[3] = g_strdup ("-i");
+	argv[4] = g_strdup ("application/vnd.cups-pdf");
+	argv[5] = g_strdup ("-m");
+	argv[6] = g_strdup (final_content_type);
+	argv[7] = NULL;
+
+	for (s = argv + 1; *s; s++)
+		job_debug (PD_JOB (job), " Arg: %s", *s);
+
+	ret = g_spawn_async ("/" /* wd */,
+			     argv,
+			     envp,
+			     G_SPAWN_DO_NOT_REAP_CHILD,
+			     child_setup,
+			     user_data,
+			     child_pid,
+			     error);
+
+	g_strfreev (argv);
+	return ret;
+}
+
+static gboolean
 pd_job_impl_run_process (PdJobImpl *job,
 			 struct _PdJobProcess *jp,
 			 GError **error)
@@ -1052,20 +1145,22 @@ pd_job_impl_run_process (PdJobImpl *job,
 
 	argv = g_malloc0 (sizeof (char *) * 8);
 	argv[0] = g_strdup (jp->cmd);
-	/* URI */
-	argv[1] = g_strdup (uri);
-	/* Job ID */
-	argv[2] = g_strdup_printf ("%u", job_id);
-	/* User name */
-	argv[3] = username;
-	/* Job title */
-	argv[4] = g_strdup_printf ("job %u", job_id);
-	/* Copies */
-	argv[5] = g_strdup ("1");
-	/* Options */
-	argv[6] = options->str;
-	g_string_free (options, FALSE);
-	argv[7] = NULL;
+	if (jp->type != FILTERCHAIN_CUPSFILTER) {
+		/* URI */
+		argv[1] = g_strdup (uri);
+		/* Job ID */
+		argv[2] = g_strdup_printf ("%u", job_id);
+		/* User name */
+		argv[3] = username;
+		/* Job title */
+		argv[4] = g_strdup_printf ("job %u", job_id);
+		/* Copies */
+		argv[5] = g_strdup ("1");
+		/* Options */
+		argv[6] = options->str;
+		g_string_free (options, FALSE);
+		argv[7] = NULL;
+	}
 
 	envp = g_malloc0 (sizeof (char *) * 2);
 	envp[0] = g_strdup_printf ("DEVICE_URI=%s", uri);
@@ -1074,8 +1169,9 @@ pd_job_impl_run_process (PdJobImpl *job,
 	job_debug (PD_JOB (job), "Executing %s", argv[0]);
 	for (s = envp; *s; s++)
 		job_debug (PD_JOB (job), " Env: %s", *s);
-	for (s = argv + 1; *s; s++)
-		job_debug (PD_JOB (job), " Arg: %s", *s);
+	if (jp->type != FILTERCHAIN_CUPSFILTER)
+		for (s = argv + 1; *s; s++)
+			job_debug (PD_JOB (job), " Arg: %s", *s);
 
 	switch (jp->type) {
 	case FILTERCHAIN_CMD:
@@ -1097,6 +1193,15 @@ pd_job_impl_run_process (PdJobImpl *job,
 				       jp,
 				       &jp->pid,
 				       error);
+		break;
+
+	case FILTERCHAIN_CUPSFILTER:
+		ret = run_cupsfilter (job,
+				      envp,
+				      pd_job_impl_process_setup,
+				      jp,
+				      &jp->pid,
+				      error);
 		break;
 
 	default:
@@ -1136,7 +1241,9 @@ pd_job_impl_run_process (PdJobImpl *job,
 	}
 
  out:
-	g_strfreev (argv);
+	if (argv)
+		g_strfreev (argv);
+
 	g_strfreev (envp);
 	return ret;
 }
@@ -1152,14 +1259,14 @@ static void
 pd_job_impl_start_processing (PdJobImpl *job)
 {
 	GError *error = NULL;
-	const gchar *printer_path;
 	const gchar *uri;
 	PdPrinter *printer = NULL;
 	char *scheme = NULL;
 	GIOChannel *channel;
 	struct _PdJobProcess *jp;
 	gint document_fd = -1;
-	GList *filter;
+	GList *filter, *next_filter;
+	const gchar *driver;
 
 	if (job->filterchain) {
 		job_warning (PD_JOB (job), "Already processing!");
@@ -1169,12 +1276,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	job_debug (PD_JOB (job), "Starting to process job");
 
 	/* Get the device URI to use from the Printer */
-	printer_path = pd_job_get_printer (PD_JOB (job));
-	printer = pd_engine_get_printer_by_path (pd_daemon_get_engine (job->daemon),
-						 printer_path);
-	if (!printer) {
-		job_warning (PD_JOB (job), "Incorrect printer path %s",
-			     printer_path);
+	if ((printer = pd_job_impl_get_printer (job)) == NULL) {
+		job_warning (PD_JOB (job), "No printer for job");
 		goto fail;
 	}
 
@@ -1210,6 +1313,27 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	jp->cmd = g_strdup ("/usr/lib/cups/filter/pdftopdf");
 	jp->what = "arranger";
 
+	/* Add the arranger to the filter chain */
+	job->filterchain = g_list_insert (job->filterchain, jp, -1);
+
+	driver = pd_printer_get_driver (printer);
+	if (driver && *driver) {
+		/* Set up the transformer */
+		jp = g_malloc0 (sizeof (struct _PdJobProcess));
+		pd_job_impl_init_jp (job, jp);
+		jp->type = FILTERCHAIN_CUPSFILTER;
+		jp->cmd = g_strdup ("(cupsfilter)");
+		jp->what = "transformer";
+
+		/* Add the transformer to the filter chain */
+		job->filterchain = g_list_insert (job->filterchain, jp, -1);
+	}
+
+	/* Set up a pipe to write to the backend's stdin */
+	if (!pd_job_impl_create_pipe_for (job, job->backend,
+					  STDIN_FILENO, FALSE))
+		goto fail_setup;
+
 	/* Set up a pipe to read the backend's stdout */
 	if (!pd_job_impl_create_pipe_for (job, job->backend,
 					  STDOUT_FILENO, TRUE))
@@ -1219,29 +1343,6 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	if (!pd_job_impl_create_pipe_for (job, job->backend,
 					  STDERR_FILENO, TRUE))
 		goto fail_setup;
-
-	/* Connect the document fd to the arranger's stdin */
-	jp->child_fd[STDIN_FILENO] = document_fd;
-
-	/* Set up a pipe to read the arranger's stdout */
-	if (!pd_job_impl_create_pipe_for (job, jp, STDOUT_FILENO, TRUE))
-		goto fail_setup;
-
-	/* Set up a pipe to write to the backend's stdin */
-	if (!pd_job_impl_create_pipe_for (job, job->backend,
-					  STDIN_FILENO, FALSE))
-		goto fail_setup;
-
-	/* Set up a pipe to read the arranger's stderr */
-	if (!pd_job_impl_create_pipe_for (job, jp, STDERR_FILENO, TRUE)) {
-	fail_setup:
-		g_free (jp);
-		close (document_fd);
-		goto fail;
-	}
-
-	/* Add the arranger to the filter chain */
-	job->filterchain = g_list_insert (job->filterchain, jp, 0);
 
 	/* Connect the back-channel between backend and filter-chain */
 	if (!g_unix_open_pipe (job->fd_back, 0, &error)) {
@@ -1274,6 +1375,54 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		jp->child_fd[PD_FD_SIDE] = job->fd_side[1];
 	}
 
+	/* Set up pipes to read stderr from the filters */
+	for (filter = g_list_first (job->filterchain);
+	     filter;
+	     filter = g_list_next (filter)) {
+		jp = filter->data;
+		if (!pd_job_impl_create_pipe_for (job, jp,
+						  STDERR_FILENO, TRUE)) {
+		fail_setup:
+			g_free (jp);
+			close (document_fd);
+			goto fail;
+		}
+	}
+
+	/* Set up pipes between the filters in the filter chain */
+	filter = g_list_first (job->filterchain);
+	for (next_filter = g_list_next (filter);
+	     next_filter;
+	     next_filter = g_list_next (next_filter),
+		     filter = next_filter) {
+		gint pipe_fd[2];
+		struct _PdJobProcess *nextjp;
+
+		jp = filter->data;
+		nextjp = next_filter->data;
+		if (!g_unix_open_pipe (pipe_fd, 0, &error)) {
+			job_warning (PD_JOB (job), "Failed to create pipe: %s",
+				     error->message);
+			g_error_free (error);
+			goto fail_setup;
+		}
+
+		jp->child_fd[STDOUT_FILENO] = pipe_fd[STDOUT_FILENO];
+		nextjp->child_fd[STDIN_FILENO] = pipe_fd[STDIN_FILENO];
+	}
+
+	/* Connect the document fd to the input of the first filter in
+	 * the chain. */
+	filter = g_list_first (job->filterchain);
+	jp = filter->data;
+	jp->child_fd[STDIN_FILENO] = document_fd;
+
+	/* Set up a pipe for the output of last filter in the filter chain */
+	filter = g_list_last (job->filterchain);
+	jp = filter->data;
+	if (!pd_job_impl_create_pipe_for (job, jp, STDOUT_FILENO, TRUE))
+		goto fail_setup;
+	
 	/* When the filters have finished, the state will still be
 	   processing (the backend hasn't run yet). */
 	job->pending_job_state = PD_JOB_STATE_PROCESSING;
@@ -1290,7 +1439,16 @@ pd_job_impl_start_processing (PdJobImpl *job)
 			g_error_free (error);
 			goto fail;
 		}
+	}
 
+	close (job->fd_back[STDIN_FILENO]);
+	close (job->fd_side[0]);
+
+	/* Start watching output */
+	for (filter = g_list_first (job->filterchain);
+	     filter;
+	     filter = g_list_next (filter)) {
+		jp = filter->data;
 		channel = jp->channel[STDERR_FILENO];
 		jp->io_source[STDERR_FILENO] =
 			g_io_add_watch (channel,
@@ -1299,9 +1457,6 @@ pd_job_impl_start_processing (PdJobImpl *job)
 					pd_job_impl_message_io_cb,
 					jp);
 	}
-
-	close (job->fd_back[STDIN_FILENO]);
-	close (job->fd_side[0]);
 
 	/* Watch for processes exiting */
 	for (filter = g_list_first (job->filterchain);
@@ -1398,7 +1553,7 @@ pd_job_impl_start_sending (PdJobImpl *job)
 
 	/* Now there's somewhere to send the data to, add an IO watch
 	 * to the stdout of the last filter in the chain. */
-	jp = g_list_first (job->filterchain)->data;
+	jp = g_list_last (job->filterchain)->data;
 	channel = jp->channel[STDOUT_FILENO];
 	jp->io_source[STDOUT_FILENO] =
 		g_io_add_watch (channel,
@@ -1666,13 +1821,10 @@ pd_job_impl_start (PdJob *_job,
 	/* If document-format unset, use the printer's document-format
 	 * default */
 	if (!job->document_mimetype) {
-		const gchar *printer_path = pd_job_get_printer (PD_JOB (job));
-		PdEngine *engine;
 		PdPrinter *printer;
 		GVariant *defaults = NULL;
-		engine = pd_daemon_get_engine (job->daemon);
-		printer = pd_engine_get_printer_by_path (engine,
-							 printer_path);
+
+		printer = pd_job_impl_get_printer (job);
 		if (printer)
 			defaults = pd_printer_get_defaults (printer);
 

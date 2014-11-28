@@ -546,6 +546,22 @@ pd_printer_impl_get_next_job (PdPrinterImpl *printer)
 	return best;
 }
 
+/**
+ * pd_printer_impl_get_final_content_type:
+ * @printer: A #PdPrinterImpl.
+ *
+ * Get the next job which should be processed, or NULL if there is no
+ * suitable job.
+ *
+ * Returns: (transfer none): The final content type. Do not free the
+ * returned value, it belonds to @printer.
+ */
+const gchar *
+pd_printer_impl_get_final_content_type (PdPrinterImpl *printer)
+{
+	return printer->final_content_type;
+}
+
 /* ------------------------------------------------------------------ */
 
 static void

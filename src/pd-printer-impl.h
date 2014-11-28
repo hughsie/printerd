@@ -61,6 +61,7 @@ const gchar	*pd_printer_impl_get_uri	(PdPrinterImpl	*printer);
 PdJob		*pd_printer_impl_get_next_job	(PdPrinterImpl	*printer);
 gboolean	 pd_printer_impl_set_driver (PdPrinterImpl *printer,
 					     const gchar *driver);
+const gchar	*pd_printer_impl_get_final_content_type (PdPrinterImpl *printer);
 
 G_END_DECLS
 

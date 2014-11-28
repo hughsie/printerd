@@ -85,10 +85,10 @@ EOF
 done
 
 if ! diff -u - <(gdbus introspect --session --only-properties \
-		     --dest $PD_DEST \
-		     --object-path "$jobpath" | \
-		      grep 'u State = ' | \
-		      sed -e 's,^ *readonly ,,') <<EOF
+		       --dest $PD_DEST \
+		       --object-path "$jobpath" | \
+			grep 'u State = ' | \
+			sed -e 's,^ *readonly ,,') <<EOF
 u State = 9;
 EOF
 then
