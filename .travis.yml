@@ -10,3 +10,4 @@ before_install:
 script: ./autogen.sh --disable-systemd &&
         DISPLAY=:99.0 make distcheck
         DISTCHECK_CONFIGURE_FLAGS="--disable-introspection --disable-systemd"
+        TESTS_ENVIRONMENT='$(MAKE) -s printerd-session.pid;top_srcdir=$(top_srcdir) top_builddir=$(top_builddir) BOOKMARK=$(TEST_BOOKMARK) SESSION_LOG=$(TEST_SESSION_LOG)'
