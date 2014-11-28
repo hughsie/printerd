@@ -35,6 +35,7 @@ G_BEGIN_DECLS
  * @PD_ERROR_FAILED: The operation failed.
  * @PD_ERROR_CANCELLED: The operation was cancelled.
  * @PD_ERROR_UNIMPLEMENTED: The operation is not implemented.
+ * @PD_ERROR_UNSUPPORTED_DOCUMENT_TYPE: The document type is not supported.
  *
  * Error codes for the #PD_ERROR error domain and the
  * corresponding D-Bus error names.
@@ -44,9 +45,10 @@ typedef enum
   PD_ERROR_FAILED,                     /* org.freedesktop.printerd.Error.Failed */
   PD_ERROR_CANCELLED,                  /* org.freedesktop.printerd.Error.Cancelled */
   PD_ERROR_UNIMPLEMENTED,	       /* org.freedesktop.printerd.Error.Unimplemented */
+  PD_ERROR_UNSUPPORTED_DOCUMENT_TYPE,  /* org.freedesktop.printerd.Error.UnsupportedDocumentType */
 } PdError;
 
-#define PD_ERROR_NUM_ENTRIES  (PD_ERROR_UNIMPLEMENTED + 1)
+#define PD_ERROR_NUM_ENTRIES  (PD_ERROR_UNSUPPORTED_DOCUMENT_TYPE + 1)
 
 G_END_DECLS
 

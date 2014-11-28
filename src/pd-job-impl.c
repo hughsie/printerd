@@ -83,6 +83,7 @@ struct _PdJobImpl
 
 	gint		 document_fd;
 	gchar		*document_filename;
+	gchar		*document_mimetype;
 
 	GList		*filterchain; /* of _PdJobProcess* */
 	struct _PdJobProcess *backend;
@@ -178,6 +179,8 @@ pd_job_impl_finalize (GObject *object)
 		g_unlink (job->document_filename);
 		g_free (job->document_filename);
 	}
+	if (job->document_mimetype)
+		g_free (job->document_mimetype);
 
 	/* Shut down filter chain */
 	g_list_free_full (job->filterchain,
@@ -251,6 +254,7 @@ pd_job_impl_init (PdJobImpl *job)
 					     G_DBUS_INTERFACE_SKELETON_FLAGS_HANDLE_METHOD_INVOCATIONS_IN_THREAD);
 
 	job->document_fd = -1;
+	job->document_mimetype = NULL;
 
 	job->backend = g_malloc0 (sizeof (struct _PdJobProcess));
 	pd_job_impl_init_jp (job, job->backend);
@@ -1486,6 +1490,10 @@ pd_job_impl_add_document (PdJob *_job,
 		goto out;
 	}
 
+	/* If the document format has been specified, make a note of it. */
+	g_variant_lookup (options, "document-format", "s",
+			  &job->document_mimetype);
+
 	job_debug (PD_JOB (job), "Adding document");
 	if (fd_list == NULL || g_unix_fd_list_get_length (fd_list) != 1) {
 		job_warning (PD_JOB (job), "Bad AddDocument call");
@@ -1533,6 +1541,10 @@ pd_job_impl_start (PdJob *_job,
 	GVariant *attr_user;
 	gchar *requesting_user = NULL;
 	const gchar *originating_user = NULL;
+	gchar *content_type;
+	gboolean type_uncertain = FALSE;
+	guchar data[2048];
+	gssize data_size;
 
 	/* Check if the user is authorized to start a job */
 	if (!pd_daemon_check_authorization_sync (job->daemon,
@@ -1593,7 +1605,7 @@ pd_job_impl_start (PdJob *_job,
 	input = g_unix_input_stream_new (job->document_fd,
 					 TRUE /* close_fd */);
 	output = g_unix_output_stream_new (spoolfd,
-					   TRUE /* close_fd */);
+					   FALSE /* close_fd */);
 	job->document_fd = -1;
 
 	if (g_output_stream_splice (output,
@@ -1608,6 +1620,49 @@ pd_job_impl_start (PdJob *_job,
 
 	if (!g_input_stream_close (input, NULL, &error))
 		goto fail;
+
+	/* Work out mime type of input */
+	if (!job->document_mimetype) {
+		job_debug (PD_JOB (job), "Determining MIME type");
+		lseek (spoolfd, 0, SEEK_SET);
+		g_object_unref (input);
+		input = g_unix_input_stream_new (spoolfd,
+						 TRUE /* close_fd */);
+		data_size = g_input_stream_read (input,
+						 data,
+						 sizeof (data),
+						 NULL,
+						 &error);
+		if (data_size == -1)
+			goto fail;
+
+		content_type = g_content_type_guess (name_used,
+						     data,
+						     (gsize) data_size,
+						     &type_uncertain);
+
+		if (type_uncertain)
+			job_debug (PD_JOB (job), "Content type unknown");
+		else {
+			job->document_mimetype = g_content_type_get_mime_type (content_type);
+			g_free (content_type);
+		}
+	}
+
+	job_debug (PD_JOB (job), "MIME type: %s", job->document_mimetype);
+
+	/* Check we're dealing with a MIME type we can handle */
+	if (g_strcmp0 (job->document_mimetype, "application/pdf")) {
+		job_debug (PD_JOB (job), "Unsupported MIME type, aborting");
+		pd_job_impl_do_cancel_with_reason (job,
+						   PD_JOB_STATE_ABORTED,
+						   "job-aborted-by-system");
+		g_dbus_method_invocation_return_error (invocation,
+						       PD_ERROR,
+						       PD_ERROR_UNSUPPORTED_DOCUMENT_TYPE,
+						       N_("Unsupported document type"));
+		goto out;
+	}
 
 	/* Job is no longer incoming so remove that state reason if
 	   present */

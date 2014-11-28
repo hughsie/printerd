@@ -36,6 +36,7 @@ static const GDBusErrorEntry dbus_error_entries[] =
   {PD_ERROR_FAILED,                       "org.freedesktop.printerd.Error.Failed"},
   {PD_ERROR_CANCELLED,                    "org.freedesktop.printerd.Error.Cancelled"},
   {PD_ERROR_UNIMPLEMENTED,	          "org.freedesktop.printerd.Error.Unimplemented"},
+  {PD_ERROR_UNSUPPORTED_DOCUMENT_TYPE,    "org.freedesktop.printerd.Error.UnsupportedDocumentType"},
 };
 
 GQuark

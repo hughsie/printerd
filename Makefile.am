@@ -40,6 +40,7 @@ TESTS = \
 	tests/job1/run-test \
 	tests/job2/run-test \
 	tests/job3/run-test \
+	tests/job4/run-test \
 	tests/stop-session-service/run-test
 
 XFAIL_TESTS = \
