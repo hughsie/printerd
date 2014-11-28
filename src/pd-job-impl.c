@@ -1063,7 +1063,6 @@ pd_job_impl_run_process (PdJobImpl *job,
 	for (s = argv + 1; *s; s++)
 		job_debug (PD_JOB (job), " Arg: %s", *s);
 
-	jp->started = TRUE;
 	if (jp->cmd)
 		ret = g_spawn_async ("/" /* wd */,
 				     argv,
@@ -1084,6 +1083,8 @@ pd_job_impl_run_process (PdJobImpl *job,
 
 	if (!ret)
 		goto out;
+
+	jp->started = TRUE;
 
 	/* Watch for its exit code */
 	jp->process_watch_source =
