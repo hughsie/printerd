@@ -194,6 +194,15 @@ pd_job_impl_finalize (GObject *object)
 	if (job->document_mimetype)
 		g_free (job->document_mimetype);
 
+	if (job->fd_back[STDIN_FILENO] != -1)
+		close (job->fd_back[STDIN_FILENO]);
+	if (job->fd_back[STDOUT_FILENO] != -1)
+		close (job->fd_back[STDOUT_FILENO]);
+	if (job->fd_side[0] != -1)
+		close (job->fd_side[0]);
+	if (job->fd_side[1] != -1)
+		close (job->fd_side[1]);
+
 	/* Shut down filter chain */
 	g_list_free_full (job->filterchain,
 			  pd_job_impl_finalize_jp);
@@ -1443,6 +1452,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 
 	close (job->fd_back[STDIN_FILENO]);
 	close (job->fd_side[0]);
+	job->fd_back[STDIN_FILENO] = job->fd_side[0] = -1;
 
 	/* Start watching output */
 	for (filter = g_list_first (job->filterchain);
@@ -1524,6 +1534,7 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	/* Close the backend's back/side fds */
 	close (job->fd_back[STDOUT_FILENO]);
 	close (job->fd_side[1]);
+	job->fd_back[STDOUT_FILENO] = job->fd_side[1] = -1;
 
 	job->backend->io_source[STDIN_FILENO] = 0;
 
