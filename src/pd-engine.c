@@ -414,6 +414,9 @@ pd_engine_job_state_notify	(PdJob *job)
 		/* This is a now candidate for processing. */
 
 		if (printer_state == PD_PRINTER_STATE_IDLE) {
+			g_signal_handlers_disconnect_by_func (job,
+							      pd_engine_job_state_notify,
+							      job);
 			engine_debug (NULL,
 				      "Printer for job %u idle "
 				      "so starting job",
