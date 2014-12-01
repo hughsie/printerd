@@ -34,6 +34,7 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 #include <glib/gstdio.h>
+#include <glib-unix.h>
 
 #include "pd-common.h"
 #include "pd-daemon.h"
@@ -88,6 +89,9 @@ struct _PdJobImpl
 	GList		*filterchain; /* of _PdJobProcess* */
 	struct _PdJobProcess *backend;
 	gint		 pending_job_state;
+
+	gint		 fd_back[2];
+	gint		 fd_side[2];
 
 	/* Data ready to send to the backend */
 	gchar		 buffer[1024];
@@ -258,6 +262,9 @@ pd_job_impl_init (PdJobImpl *job)
 
 	job->backend = g_malloc0 (sizeof (struct _PdJobProcess));
 	pd_job_impl_init_jp (job, job->backend);
+
+	job->fd_back[0] = job->fd_back[1] = -1;
+	job->fd_side[0] = job->fd_side[1] = -1;
 
 	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING_HELD);
 	gchar *incoming[] = { g_strdup ("job-incoming"), NULL };
@@ -629,7 +636,7 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 		thisfd = STDIN_FILENO;
 		nextfd = STDOUT_FILENO;
 		if (thisjp == job->backend)
-			nextjp = g_list_first (job->filterchain)->data;
+			nextjp = g_list_last (job->filterchain)->data;
 		else
 			nextjp = job->backend;
 
@@ -1092,8 +1099,8 @@ pd_job_impl_run_process (PdJobImpl *job,
 				   pd_job_impl_process_watch_cb,
 				   jp);
 
-	/* Close the child's end of the pipe now they've started */
-	for (i = 0; i < PD_FD_MAX; i++)
+	/* Close the child's end of the in/out/err pipes now they've started */
+	for (i = 0; i <= STDERR_FILENO; i++)
 		if (jp->child_fd[i] != -1)
 			close (jp->child_fd[i]);
 
@@ -1143,7 +1150,6 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	GIOChannel *channel;
 	struct _PdJobProcess *jp;
 	gint document_fd = -1;
-	gint pipe_fd[2];
 	GList *filter;
 
 	if (job->filterchain) {
@@ -1225,33 +1231,34 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	job->filterchain = g_list_insert (job->filterchain, jp, 0);
 
 	/* Connect the back-channel between backend and filter-chain */
-	if (pipe (pipe_fd) != 0) {
+	if (!g_unix_open_pipe (job->fd_back, 0, &error)) {
 		job_warning (PD_JOB (job), "Failed to create pipe: %s",
-			     g_strerror (errno));
+			     error->message);
+		g_error_free (error);
 		goto fail;
 	}
 
-	job->backend->child_fd[PD_FD_BACK] = pipe_fd[STDOUT_FILENO];
+	job->backend->child_fd[PD_FD_BACK] = job->fd_back[STDOUT_FILENO];
 	for (filter = g_list_first (job->filterchain);
 	     filter;
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
-		jp->child_fd[PD_FD_BACK] = pipe_fd[STDIN_FILENO];
+		jp->child_fd[PD_FD_BACK] = job->fd_back[STDIN_FILENO];
 	}
 
 	/* Connect the side-channel between filter-chain and backend */
-	if (socketpair (AF_LOCAL, SOCK_STREAM, 0, pipe_fd) != 0) {
+	if (socketpair (AF_LOCAL, SOCK_STREAM, 0, job->fd_side) != 0) {
 		job_warning (PD_JOB (job), "Failed to create socket pair: %s",
 			     g_strerror (errno));
 		goto fail;
 	}
 
-	job->backend->child_fd[PD_FD_SIDE] = pipe_fd[0];
+	job->backend->child_fd[PD_FD_SIDE] = job->fd_side[0];
 	for (filter = g_list_first (job->filterchain);
 	     filter;
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
-		jp->child_fd[PD_FD_SIDE] = pipe_fd[1];
+		jp->child_fd[PD_FD_SIDE] = job->fd_side[1];
 	}
 
 	/* When the filters have finished, the state will still be
@@ -1279,6 +1286,9 @@ pd_job_impl_start_processing (PdJobImpl *job)
 					pd_job_impl_message_io_cb,
 					jp);
 	}
+
+	close (job->fd_back[STDIN_FILENO]);
+	close (job->fd_side[0]);
 
 	/* Don't add an IO watch to the end of the chain yet. Let it
 	 * buffer until the backend has started. */
@@ -1331,6 +1341,10 @@ pd_job_impl_start_sending (PdJobImpl *job)
 				  PD_JOB_STATE_ABORTED);
 		goto out;
 	}
+
+	/* Close the backend's back/side fds */
+	close (job->fd_back[STDOUT_FILENO]);
+	close (job->fd_side[1]);
 
 	job->backend->io_source[STDIN_FILENO] = 0;
 
