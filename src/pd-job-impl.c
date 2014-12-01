@@ -1108,12 +1108,6 @@ pd_job_impl_run_process (PdJobImpl *job,
 
 	jp->started = TRUE;
 
-	/* Watch for its exit code */
-	jp->process_watch_source =
-		g_child_watch_add (jp->pid,
-				   pd_job_impl_process_watch_cb,
-				   jp);
-
 	/* Close the child's end of the in/out/err pipes now they've started */
 	for (i = 0; i <= STDERR_FILENO; i++)
 		if (jp->child_fd[i] != -1)
@@ -1309,6 +1303,17 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	close (job->fd_back[STDIN_FILENO]);
 	close (job->fd_side[0]);
 
+	/* Watch for processes exiting */
+	for (filter = g_list_first (job->filterchain);
+	     filter;
+	     filter = g_list_next (filter)) {
+		jp = filter->data;
+		jp->process_watch_source =
+			g_child_watch_add (jp->pid,
+					   pd_job_impl_process_watch_cb,
+					   jp);
+	}
+
 	/* Don't add an IO watch to the end of the chain yet. Let it
 	 * buffer until the backend has started. */
 
@@ -1383,6 +1388,13 @@ pd_job_impl_start_sending (PdJobImpl *job)
 				G_IO_HUP,
 				pd_job_impl_message_io_cb,
 				job->backend);
+
+	/* Watch for the backend exiting */
+	jp = job->backend;
+	jp->process_watch_source =
+		g_child_watch_add (jp->pid,
+				   pd_job_impl_process_watch_cb,
+				   jp);
 
 	/* Now there's somewhere to send the data to, add an IO watch
 	 * to the stdout of the last filter in the chain. */
