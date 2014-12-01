@@ -37,7 +37,8 @@ AFTER_GETPRINTERS_TESTS = \
 	tests/job1/run-test \
 	tests/job2/run-test \
 	tests/job3/run-test \
-	tests/job4/run-test
+	tests/job4/run-test \
+	tests/cupsfilter/run-test
 
 # Some tests have to run at the beginning.
 ALL_TESTS = \
@@ -56,7 +57,8 @@ TESTS = \
 
 # Some tests are known to fail at the moment.
 XFAIL_TESTS = \
-	tests/createprinter3/run-test
+	tests/createprinter3/run-test \
+	tests/cupsfilter/run-test
 
 # Start the session daemon before running the tests
 $(TESTS:run-test=run-test.log): printerd-session.pid

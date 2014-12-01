@@ -1,0 +1,121 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+# Test "file:" output
+
+PPD="$(simple_ppd)"
+INPUT_FILE="$(sample_pdf)"
+FILE_TARGET="$(mktemp /tmp/printerd.XXXXXXXXX)"
+function finish {
+    rm -f "$PPD" "$INPUT_FILE" "$FILE_TARGET"
+}
+trap finish EXIT
+
+# Create a printer.
+printf "CreatePrinter driver:%s\n" "${PPD}"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.CreatePrinter \
+	       "{'driver-name':<'${PPD}'>}" \
+	       "cupsfilter" \
+	       "printer description" \
+	       "printer location" \
+	       "['file://${FILE_TARGET}']" \
+	       "{}")
+
+objpath=$(printf "%s" "$result" | sed -ne "s:^(objectpath '\(.*\)',):\1:p")
+if [ -z "$objpath" ]; then
+    printf "Expected (objectpath): %s\n" "$result"
+    result_is 1
+fi
+
+# Create a job on that printer.
+printf "CreateJob\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $objpath \
+	       --method $PD_IFACE.Printer.CreateJob \
+	       "{}" \
+	       'job name' \
+	       '{}')
+if ! diff -u - <(printf "%s\n" "$result" | sed -e 's,[0-9]\+,X,') <<"EOF"
+(objectpath '/org/freedesktop/printerd/job/X', @a{sv} {})
+EOF
+then
+    printf "Unexpected result\n"
+    result_is 1
+fi
+
+# Add a document to it.
+jobpath=$(printf "%s" "$result" | sed -ne "s:^.*'\(.*\)'.*$:\1:p")
+printf "AddDocument\n"
+if ! $PDCLI --session add-documents "${jobpath##*/}" "$INPUT_FILE"; then
+    printf "Failed to add document to job\n"
+    result_is 1
+fi
+
+# Start the job
+printf "Start\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $jobpath \
+	       --method $PD_IFACE.Job.Start \
+	       '{}')
+if [ "$result" != "()" ]; then
+    printf "StartJob failed\n"
+    result_is 1
+fi
+
+for i in 0.2 0.3 0.5 1 1 1 1; do
+    sleep $i
+    # Inspect its properties. State should be completed.
+    printf "Examining properties\n"
+    if diff -qu - <(gdbus introspect --session --only-properties \
+			  --dest $PD_DEST \
+			  --object-path "$jobpath" | \
+			   grep 'u State = ' | \
+			   sed -e 's,^ *readonly ,,') <<EOF
+u State = 9;
+EOF
+    then
+	break
+    fi
+done
+
+if ! diff -u - <(gdbus introspect --session --only-properties \
+		     --dest $PD_DEST \
+		     --object-path "$jobpath" | \
+		      grep 'u State = ' | \
+		      sed -e 's,^ *readonly ,,') <<EOF
+u State = 9;
+EOF
+then
+    printf "State differs from expected\n"
+    result_is 1
+fi
+
+# Check output format
+MAGIC="$(dd if="${FILE_TARGET}" bs=4 count=1 2>/dev/null)"
+if [ "$MAGIC" != "3SaR" ]; then
+    printf "Output file magic differs from expected\n"
+    result_is 1
+fi
+printf "Magic: %s\n" "$MAGIC"
+
+# Delete the printer.
+printf "DeletePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.DeletePrinter \
+	       "{}" \
+	       $objpath)
+
+if [ "$result" != "()" ]; then
+    printf "Expected (): %s\n" "$result"
+    result_is 1
+fi
+
+result_is 0
