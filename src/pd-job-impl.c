@@ -54,10 +54,17 @@
 
 typedef struct _PdJobImplClass	PdJobImplClass;
 
+typedef enum
+{
+	FILTERCHAIN_CMD,
+	FILTERCHAIN_FILE_OUTPUT,
+} PdJobProcessType;
+
 struct _PdJobProcess
 {
 	PdJobImpl	*job;
 	const gchar	*what;
+	PdJobProcessType type;
 	gchar		*cmd;
 	gboolean	 started;
 	gboolean	 finished;
@@ -1044,7 +1051,7 @@ pd_job_impl_run_process (PdJobImpl *job,
 		options = g_string_new ("");
 
 	argv = g_malloc0 (sizeof (char *) * 8);
-	argv[0] = g_strdup (jp->cmd ? jp->cmd : "(file output)");
+	argv[0] = g_strdup (jp->cmd);
 	/* URI */
 	argv[1] = g_strdup (uri);
 	/* Job ID */
@@ -1070,7 +1077,8 @@ pd_job_impl_run_process (PdJobImpl *job,
 	for (s = argv + 1; *s; s++)
 		job_debug (PD_JOB (job), " Arg: %s", *s);
 
-	if (jp->cmd)
+	switch (jp->type) {
+	case FILTERCHAIN_CMD:
 		ret = g_spawn_async ("/" /* wd */,
 				     argv,
 				     envp,
@@ -1080,13 +1088,20 @@ pd_job_impl_run_process (PdJobImpl *job,
 				     jp,
 				     &jp->pid,
 				     error);
-	else
+		break;
+
+	case FILTERCHAIN_FILE_OUTPUT:
 		ret = run_file_output (argv,
 				       envp,
 				       pd_job_impl_process_setup,
 				       jp,
 				       &jp->pid,
 				       error);
+		break;
+
+	default:
+		g_assert_not_reached ();
+	}
 
 	if (!ret)
 		goto out;
@@ -1183,17 +1198,21 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	}
 
 	/* Set up pipeline */
-	if (!g_strcmp0 (scheme, "file"))
-		job->backend->cmd = NULL;
-	else
+	if (!g_strcmp0 (scheme, "file")) {
+		job->backend->cmd = g_strdup ("(file output)");
+		job->backend->type = FILTERCHAIN_FILE_OUTPUT;
+	} else {
+		job->backend->type = FILTERCHAIN_CMD;
 		job->backend->cmd = g_strdup_printf ("/usr/lib/cups/backend/%s",
-						    scheme);
+						     scheme);
+	}
 
 	job->backend->what = "backend";
 
 	/* Set up the arranger */
 	jp = g_malloc0 (sizeof (struct _PdJobProcess));
 	pd_job_impl_init_jp (job, jp);
+	jp->type = FILTERCHAIN_CMD;
 	jp->cmd = g_strdup ("/usr/lib/cups/filter/pdftopdf");
 	jp->what = "arranger";
 
