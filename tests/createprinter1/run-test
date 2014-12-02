@@ -5,15 +5,15 @@
 # Create a printer.
 printf "CreatePrinter\n"
 result=$(gdbus call --session \
-  --dest $PD_DEST \
-  --object-path $PD_PATH/Manager \
-  --method $PD_IFACE.Manager.CreatePrinter \
-  "{}" \
-  "create-printer1" \
-  "printer description" \
-  "printer location" \
-  '["ipp://remote:631/printers/remote"]' \
-  "{}")
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.CreatePrinter \
+	       "{}" \
+	       "create-printer1" \
+	       "printer description" \
+	       "printer location" \
+	       '["ipp://remote:631/printers/remote"]' \
+	       "{}")
 
 objpath=$(printf "%s" "$result" | sed -ne "s:^(objectpath '\(.*\)',):\1:p")
 if [ -z "$objpath" ]; then

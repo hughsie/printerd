@@ -1182,7 +1182,7 @@ pd_job_impl_run_process (PdJobImpl *job,
 		/* User name */
 		argv[3] = username;
 		/* Job title */
-		argv[4] = g_strdup_printf ("job %u", job_id);
+		argv[4] = g_strdup (pd_job_get_name (PD_JOB (job)));
 		/* Copies */
 		argv[5] = g_strdup ("1");
 		/* Options */

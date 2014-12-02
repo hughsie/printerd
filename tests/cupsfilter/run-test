@@ -38,7 +38,7 @@ result=$(gdbus call --session \
 	       --object-path $objpath \
 	       --method $PD_IFACE.Printer.CreateJob \
 	       "{}" \
-	       'job name' \
+	       'cupsfilter' \
 	       '{}')
 if ! diff -u - <(printf "%s\n" "$result" | sed -e 's,[0-9]\+,X,') <<"EOF"
 (objectpath '/org/freedesktop/printerd/job/X', @a{sv} {})

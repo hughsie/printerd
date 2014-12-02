@@ -9,20 +9,32 @@ function finish {
 trap finish EXIT
 
 # Create a printer.
-if ! "$PDCLI" --session create-printer job1 "file://${FILE_TARGET}"; then
-    printf "pd-cli failed\n"
-    result_is 1
+printf "CreatePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.CreatePrinter \
+	       "{}" \
+	       "job1" \
+	       "printer description" \
+	       "printer location" \
+	       "['file://${FILE_TARGET}']" \
+	       "{}")
+
+objpath=$(printf "%s" "$result" | sed -ne "s:^(objectpath '\(.*\)',):\1:p")
+if [ -z "$objpath" ]; then
+  printf "Expected (objectpath): %s\n" "$result"
+  result_is 1
 fi
 
 # Create a job on that printer.
-objpath=/org/freedesktop/printerd/printer/job1
 printf "CreateJob\n"
 result=$(gdbus call --session \
 	       --dest $PD_DEST \
 	       --object-path $objpath \
 	       --method $PD_IFACE.Printer.CreateJob \
 	       '{}' \
-	       'job name' \
+	       'job1' \
 	       '{}')
 if ! diff -u - <(printf "%s\n" "$result" | sed -e 's,[0-9]\+,X,') <<"EOF"
 (objectpath '/org/freedesktop/printerd/job/X', @a{sv} {})
@@ -45,7 +57,7 @@ if ! diff -u - <(gdbus introspect --session --only-properties \
 			    -e '/s DeviceUri /d') <<EOF
 as StateReasons = ['job-incoming'];
 o Printer = '$objpath';
-s Name = 'job name';
+s Name = 'job1';
 u State = 4;
 EOF
 then
@@ -77,7 +89,7 @@ if ! diff -u - <(gdbus introspect --session --only-properties \
 			    -e '/s DeviceUri /d') <<EOF
 as StateReasons = ['job-canceled-by-user'];
 o Printer = '$objpath';
-s Name = 'job name';
+s Name = 'job1';
 u State = 7;
 EOF
 then
