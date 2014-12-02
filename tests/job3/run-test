@@ -67,13 +67,34 @@ if [ "$result" != "()" ]; then
     result_is 1
 fi
 
-# Verify something came out the other end.
-for i in 1.2 0.3 0.5 1 1 1 1; do
+# Wait for the job to complete
+for i in 0.2 0.3 0.5 1 1 1 1; do
     sleep $i
-    if [ -s "$FILE_TARGET" ]; then
+    # Inspect its properties. State should be completed.
+    printf "Examining properties\n"
+    if diff -qu - <(gdbus introspect --session --only-properties \
+			  --dest $PD_DEST \
+			  --object-path "$jobpath" | \
+			   grep 'u State = ' | \
+			   sed -e 's,^ *readonly ,,') <<EOF
+u State = 9;
+EOF
+    then
 	break
     fi
 done
+
+if ! diff -u - <(gdbus introspect --session --only-properties \
+		       --dest $PD_DEST \
+		       --object-path "$jobpath" | \
+			grep 'u State = ' | \
+			sed -e 's,^ *readonly ,,') <<EOF
+u State = 9;
+EOF
+then
+    printf "State differs from expected\n"
+    result_is 1
+fi
 
 stat "$FILE_TARGET"
 if [ ! -s "$FILE_TARGET" ]; then

@@ -68,6 +68,7 @@ if [ "$result" != "()" ]; then
     result_is 1
 fi
 
+# Wait for the job to complete
 for i in 0.2 0.3 0.5 1 1 1 1; do
     sleep $i
     # Inspect its properties. State should be completed.
