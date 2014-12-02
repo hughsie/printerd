@@ -1398,12 +1398,12 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		goto fail;
 	}
 
-	job->backend->child_fd[PD_FD_SIDE] = job->fd_side[0];
+	job->backend->child_fd[PD_FD_SIDE] = job->fd_side[1];
 	for (filter = g_list_first (job->filterchain);
 	     filter;
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
-		jp->child_fd[PD_FD_SIDE] = job->fd_side[1];
+		jp->child_fd[PD_FD_SIDE] = job->fd_side[0];
 	}
 
 	/* Set up pipes to read stderr from the filters */
