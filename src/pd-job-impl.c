@@ -276,7 +276,7 @@ static void
 pd_job_impl_init (PdJobImpl *job)
 {
 	g_dbus_interface_skeleton_set_flags (G_DBUS_INTERFACE_SKELETON (job),
-					     G_DBUS_INTERFACE_SKELETON_FLAGS_HANDLE_METHOD_INVOCATIONS_IN_THREAD);
+					     0);
 
 	job->document_fd = -1;
 	job->document_mimetype = NULL;
@@ -1697,7 +1697,7 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 
 /* ------------------------------------------------------------------ */
 
-/* runs in thread dedicated to handling @invocation */
+/* runs in main thread */
 static gboolean
 pd_job_impl_add_document (PdJob *_job,
 			  GDBusMethodInvocation *invocation,
@@ -1793,7 +1793,7 @@ pd_job_impl_add_document (PdJob *_job,
 	return TRUE; /* handled the method invocation */
 }
 
-/* runs in thread dedicated to handling @invocation */
+/* runs in main thread */
 static gboolean
 pd_job_impl_start (PdJob *_job,
 		   GDBusMethodInvocation *invocation,
@@ -2091,7 +2091,7 @@ pd_job_impl_do_cancel_with_reason (PdJobImpl *job,
 	}
 }
 
-/* runs in thread dedicated to handling @invocation */
+/* runs in main thread */
 static gboolean
 pd_job_impl_cancel (PdJob *_job,
 		    GDBusMethodInvocation *invocation,
