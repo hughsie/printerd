@@ -887,8 +887,15 @@ pd_job_impl_process_setup (gpointer user_data)
 	for (i = 0; i < PD_FD_MAX; i++)
 		if (jp->child_fd[i] != -1 &&
 		    jp->child_fd[i] != i) {
-			dup2 (jp->child_fd[i], i);
-			close (jp->child_fd[i]);
+			if (dup2 (jp->child_fd[i], i) == -1 &&
+			    i > STDERR_FILENO)
+				fprintf (stderr,
+					 "ERROR: dup2(%d,%d) failed with %s\n",
+					 jp->child_fd[i], i, strerror (errno));
+			if (close (jp->child_fd[i]) && i > STDERR_FILENO)
+				fprintf (stderr,
+					 "ERROR: close(%d) failed with %s\n",
+					 jp->child_fd[i], strerror (errno));
 		}
 }
 
