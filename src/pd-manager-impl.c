@@ -194,7 +194,7 @@ pd_manager_impl_get_printers (PdManager *_manager,
 	PdManagerImpl *manager = PD_MANAGER_IMPL (_manager);
 	PdDaemon *daemon = pd_manager_impl_get_daemon (manager);
 	PdEngine *engine = pd_daemon_get_engine (daemon);
-	GList *printer_ids = pd_engine_get_printer_ids (engine);
+	GList *printer_ids = pd_engine_dup_printer_ids (engine);
 	GList *each;
 	GVariantBuilder builder;
 	GString *path = g_string_new ("");
@@ -211,6 +211,7 @@ pd_manager_impl_get_printers (PdManager *_manager,
 	g_dbus_method_invocation_return_value (invocation,
 					       g_variant_builder_end (&builder));
 	g_string_free (path, TRUE);
+	g_list_foreach (printer_ids, (GFunc) g_free, NULL);
 	g_list_free (printer_ids);
 	return TRUE; /* handled the method invocation */
 }

@@ -61,6 +61,8 @@ struct _PdPrinterImpl
 
 	gchar			*id;
 	gchar			*final_content_type;
+
+	GMutex			 lock;
 };
 
 struct _PdPrinterImplClass
@@ -134,6 +136,8 @@ pd_printer_impl_finalize (GObject *object)
 	if (printer->final_content_type)
 		g_free (printer->final_content_type);
 
+	g_mutex_clear (&printer->lock);
+
 	G_OBJECT_CLASS (pd_printer_impl_parent_class)->finalize (object);
 }
 
@@ -189,6 +193,8 @@ pd_printer_impl_init (PdPrinterImpl *printer)
 
 	g_dbus_interface_skeleton_set_flags (G_DBUS_INTERFACE_SKELETON (printer),
 					     G_DBUS_INTERFACE_SKELETON_FLAGS_HANDLE_METHOD_INVOCATIONS_IN_THREAD);
+
+	g_mutex_init (&printer->lock);
 
 	/* Defaults */
 
@@ -300,10 +306,14 @@ void
 pd_printer_impl_set_id (PdPrinterImpl *printer,
 			const gchar *id)
 {
+	g_mutex_lock (&printer->lock);
+
 	if (printer->id)
 		g_free (printer->id);
 
 	printer->id = g_strdup (id);
+
+	g_mutex_unlock (&printer->lock);
 }
 
 /**
@@ -365,6 +375,7 @@ pd_printer_impl_set_driver (PdPrinterImpl *printer,
 	if (!best_format)
 		best_format = g_strdup ("application/vnd.cups-pdf");
 
+	g_mutex_lock (&printer->lock);
 	if (printer->final_content_type)
 		g_free (printer->final_content_type);
 
@@ -372,6 +383,7 @@ pd_printer_impl_set_driver (PdPrinterImpl *printer,
 		       best_format);
 	printer->final_content_type = best_format;
 
+	g_mutex_unlock (&printer->lock);
 	ppdClose (ppd);
 	pd_printer_set_driver (PD_PRINTER (printer), driver);
 	return TRUE;
@@ -422,10 +434,14 @@ pd_printer_impl_do_update_defaults (PdPrinterImpl *printer,
 		g_free (val);
 	}
 
+	g_mutex_lock (&printer->lock);
+	g_object_freeze_notify (G_OBJECT (printer));
 	current_defaults = pd_printer_get_defaults (PD_PRINTER (printer));
 	value = update_attributes (current_defaults,
 				   defaults);
 	pd_printer_set_defaults (PD_PRINTER (printer), value);
+	g_mutex_unlock (&printer->lock);
+	g_object_thaw_notify (G_OBJECT (printer));
 }
 
 static void
@@ -469,10 +485,14 @@ pd_printer_impl_add_state_reason (PdPrinterImpl *printer,
 
 	printer_debug (PD_PRINTER (printer), "state-reasons += %s", reason);
 
+	g_mutex_lock (&printer->lock);
+	g_object_freeze_notify (G_OBJECT (printer));
 	reasons = pd_printer_get_state_reasons (PD_PRINTER (printer));
 	strv = add_or_remove_state_reason (reasons, '+', reason);
 	pd_printer_set_state_reasons (PD_PRINTER (printer),
 				      (const gchar *const *) strv);
+	g_mutex_unlock (&printer->lock);
+	g_object_thaw_notify (G_OBJECT (printer));
 	g_strfreev (strv);
 }
 
@@ -485,10 +505,14 @@ pd_printer_impl_remove_state_reason (PdPrinterImpl *printer,
 
 	printer_debug (PD_PRINTER (printer), "state-reasons -= %s", reason);
 
+	g_mutex_lock (&printer->lock);
+	g_object_freeze_notify (G_OBJECT (printer));
 	reasons = pd_printer_get_state_reasons (PD_PRINTER (printer));
 	strv = add_or_remove_state_reason (reasons, '-', reason);
 	pd_printer_set_state_reasons (PD_PRINTER (printer),
 				      (const gchar *const *) strv);
+	g_mutex_unlock (&printer->lock);
+	g_object_thaw_notify (G_OBJECT (printer));
 	g_strfreev (strv);
 }
 
@@ -528,6 +552,7 @@ pd_printer_impl_get_next_job (PdPrinterImpl *printer)
 
 	g_return_val_if_fail (PD_IS_PRINTER_IMPL (printer), NULL);
 
+	g_mutex_lock (&printer->lock);
 	index = 0;
 	for (index = 0; index < printer->jobs->len; index++) {
 		job = g_ptr_array_index (printer->jobs, index);
@@ -543,6 +568,7 @@ pd_printer_impl_get_next_job (PdPrinterImpl *printer)
 	if (best)
 		g_object_ref (best);
 
+	g_mutex_unlock (&printer->lock);
 	return best;
 }
 
@@ -660,6 +686,8 @@ pd_printer_impl_job_state_notify (PdJob *job)
 
 	printer = pd_object_get_printer (obj);
 
+	g_mutex_lock (&PD_PRINTER_IMPL (printer)->lock);
+	g_object_freeze_notify (G_OBJECT (printer));
 	switch (pd_job_get_state (job)) {
 	case PD_JOB_STATE_CANCELED:
 	case PD_JOB_STATE_ABORTED:
@@ -671,6 +699,8 @@ pd_printer_impl_job_state_notify (PdJob *job)
 		break;
 	}
 
+	g_mutex_unlock (&PD_PRINTER_IMPL (printer)->lock);
+	g_object_thaw_notify (G_OBJECT (printer));
  out:
 	if (obj)
 		g_object_unref (obj);
@@ -728,6 +758,9 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 	gchar *user = NULL;
 
 	printer_debug (PD_PRINTER (printer), "Creating job");
+
+	g_mutex_lock (&printer->lock);
+	g_object_freeze_notify (G_OBJECT (printer));
 
 	/* set attributes from job template attributes */
 	defaults = pd_printer_get_defaults (PD_PRINTER (printer));
@@ -792,6 +825,8 @@ pd_printer_impl_complete_create_job (PdPrinter *_printer,
 							      object_path,
 							      g_variant_builder_end (&unsupported)));
 
+	g_mutex_unlock (&printer->lock);
+	g_object_thaw_notify (G_OBJECT (printer));
 	g_free (user);
 	g_free (object_path);
 	g_free (printer_path);

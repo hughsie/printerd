@@ -49,6 +49,7 @@ struct _PdEnginePrivate
 	GHashTable	*path_to_device;
 	GHashTable	*id_to_printer;
 	guint		 next_job_id;
+	GMutex		 lock;
 };
 
 enum
@@ -95,6 +96,15 @@ pd_engine_dispose (GObject *object)
 
 	if (G_OBJECT_CLASS (pd_engine_parent_class)->dispose != NULL)
 		G_OBJECT_CLASS (pd_engine_parent_class)->dispose (object);
+}
+
+static void
+pd_engine_finalize (GObject *object)
+{
+	PdEngine *engine = PD_ENGINE (object);
+	engine_debug (engine, "Finalize");
+	g_mutex_clear (&engine->priv->lock);
+	G_OBJECT_CLASS (pd_engine_parent_class)->finalize (object);
 }
 
 static void
@@ -282,7 +292,9 @@ on_uevent (GUdevClient *client,
 	   gpointer user_data)
 {
 	PdEngine *engine = PD_ENGINE (user_data);
+	g_mutex_lock (&engine->priv->lock);
 	pd_engine_handle_uevent (engine, action, udevdevice);
+	g_mutex_unlock (&engine->priv->lock);
 }
 
 static void
@@ -293,6 +305,8 @@ pd_engine_init (PdEngine *engine)
 	engine->priv = G_TYPE_INSTANCE_GET_PRIVATE (engine, PD_TYPE_ENGINE, PdEnginePrivate);
 
 	engine->priv->next_job_id = 1;
+
+	g_mutex_init (&engine->priv->lock);
 
 	/* get ourselves an udev client */
 	engine->priv->gudev_client = g_udev_client_new (subsystems);
@@ -309,6 +323,7 @@ pd_engine_class_init (PdEngineClass *klass)
 
 	gobject_class = G_OBJECT_CLASS (klass);
 	gobject_class->dispose = pd_engine_dispose;
+	gobject_class->finalize = pd_engine_finalize;
 	gobject_class->set_property = pd_engine_set_property;
 	gobject_class->get_property = pd_engine_get_property;
 
@@ -619,6 +634,7 @@ pd_engine_add_printer	(PdEngine *engine,
 	}
 
 	/* add it to the hash */
+	g_mutex_lock (&engine->priv->lock);
 	id = pd_printer_impl_get_id (PD_PRINTER_IMPL (printer));
 	if (g_hash_table_lookup (engine->priv->id_to_printer, id) != NULL) {
 		/* collision so choose another id */
@@ -661,6 +677,7 @@ pd_engine_add_printer	(PdEngine *engine,
 					     G_DBUS_OBJECT_SKELETON (printer_object));
 
  out:
+	g_mutex_unlock (&engine->priv->lock);
 	if (driver)
 		g_free (driver);
 	if (printer_object)
@@ -689,6 +706,7 @@ pd_engine_remove_printer	(PdEngine *engine,
 	PdPrinter *printer = NULL;
 	const gchar *id;
 
+	g_mutex_lock (&engine->priv->lock);
 	obj = pd_daemon_find_object (daemon, printer_path);
 	if (!obj)
 		goto out;
@@ -707,6 +725,7 @@ pd_engine_remove_printer	(PdEngine *engine,
 	ret = TRUE;
 
  out:
+	g_mutex_unlock (&engine->priv->lock);
 	if (obj)
 		g_object_unref (obj);
 	if (printer) {
@@ -726,13 +745,20 @@ PdPrinter *
 pd_engine_get_printer_by_path	(PdEngine *engine,
 				 const gchar *printer_path)
 {
+	PdPrinter *printer;
 	const gchar *printer_id = g_strrstr (printer_path, "/");
 	if (!printer_id)
 		return NULL;
 
 	printer_id++;
-	return g_object_ref (g_hash_table_lookup (engine->priv->id_to_printer,
-						  printer_id));
+	g_mutex_lock (&engine->priv->lock);
+	printer = g_hash_table_lookup (engine->priv->id_to_printer,
+				       printer_id);
+	if (printer)
+		g_object_ref (printer);
+
+	g_mutex_unlock (&engine->priv->lock);
+	return printer;
 }
 
 /**
@@ -757,6 +783,7 @@ pd_engine_add_job	(PdEngine *engine,
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 
 	/* create the job */
+	g_mutex_lock (&engine->priv->lock);
 	daemon = pd_engine_get_daemon (engine);
 	job_id = engine->priv->next_job_id;
 	engine->priv->next_job_id++;
@@ -783,6 +810,7 @@ pd_engine_add_job	(PdEngine *engine,
 	g_dbus_object_manager_server_export (pd_daemon_get_object_manager (daemon),
 					     G_DBUS_OBJECT_SKELETON (job_object));
 
+	g_mutex_unlock (&engine->priv->lock);
 	if (job_object)
 		g_object_unref (job_object);
 	g_free (object_path);
@@ -874,17 +902,22 @@ pd_engine_printer_state_notify	(PdPrinter *printer)
 }
 
 /**
- * pd_engine_get_printer_ids:
+ * pd_engine_dup_printer_ids:
  * @engine: A #PdEngine.
  *
  * Returns a newly-allocated list of printer IDs.  Use g_list_free()
- * when done; do not free or modify the content.
+ * when done and g_free() on the content.
  */
 GList *
-pd_engine_get_printer_ids	(PdEngine *engine)
+pd_engine_dup_printer_ids	(PdEngine *engine)
 {
+	GList *keys;
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
-	return g_hash_table_get_keys (engine->priv->id_to_printer);
+	g_mutex_lock (&engine->priv->lock);
+	keys = g_hash_table_get_keys (engine->priv->id_to_printer);
+	keys = g_list_copy_deep (keys, (GCopyFunc) g_strdup, NULL);
+	g_mutex_unlock (&engine->priv->lock);
+	return keys;
 }
 
 /**
@@ -899,8 +932,10 @@ pd_engine_get_devices	(PdEngine *engine)
 {
 	GList *devices;
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
+	g_mutex_lock (&engine->priv->lock);
 	devices = g_hash_table_get_values (engine->priv->path_to_device);
 	g_list_foreach (devices, (GFunc) g_object_ref, NULL);
+	g_mutex_unlock (&engine->priv->lock);
 	return devices;
 }
 

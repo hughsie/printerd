@@ -105,6 +105,8 @@ struct _PdJobImpl
 	gchar		 buffer[1024];
 	gsize		 buflen;
 	gsize		 bufsent;
+
+	GMutex		 lock;
 };
 
 struct _PdJobImplClass
@@ -213,6 +215,8 @@ pd_job_impl_finalize (GObject *object)
 	g_signal_handlers_disconnect_by_func (job,
 					      pd_job_impl_job_state_notify,
 					      job);
+
+	g_mutex_clear (&job->lock);
 	G_OBJECT_CLASS (pd_job_impl_parent_class)->finalize (object);
 }
 
@@ -282,6 +286,8 @@ pd_job_impl_init (PdJobImpl *job)
 
 	job->fd_back[0] = job->fd_back[1] = -1;
 	job->fd_side[0] = job->fd_side[1] = -1;
+
+	g_mutex_init (&job->lock);
 
 	pd_job_set_state (PD_JOB (job), PD_JOB_STATE_PENDING_HELD);
 	gchar *incoming[] = { g_strdup ("job-incoming"), NULL };
@@ -485,6 +491,8 @@ pd_job_impl_process_watch_cb (GPid pid,
 	struct _PdJobProcess *jp = (struct _PdJobProcess *) user_data;
 	PdJobImpl *job = PD_JOB_IMPL (jp->job);
 
+	g_mutex_lock (&job->lock);
+	g_object_freeze_notify (G_OBJECT (job));
 	g_spawn_close_pid (pid);
 	jp->finished = TRUE;
 	jp->process_watch_source = 0;
@@ -539,6 +547,9 @@ pd_job_impl_process_watch_cb (GPid pid,
 					  job->pending_job_state);
 		}
 	}
+
+	g_mutex_unlock (&job->lock);
+	g_object_thaw_notify (G_OBJECT (job));
 }
 
 static void
@@ -598,6 +609,8 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 	gint thisfd;
 	gint nextfd;
 
+	g_mutex_lock (&job->lock);
+	g_object_freeze_notify (G_OBJECT (job));
 	if (condition & (G_IO_IN | G_IO_HUP)) {
 		g_assert (thisjp != job->backend);
 		thisfd = STDOUT_FILENO;
@@ -743,6 +756,8 @@ pd_job_impl_data_io_cb (GIOChannel *channel,
 	}
 
  out:
+	g_mutex_unlock (&job->lock);
+	g_object_thaw_notify (G_OBJECT (job));
 	return keep_source;
 }
 
@@ -761,6 +776,9 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 	gint thisfd;
 
 	g_assert (condition & (G_IO_IN | G_IO_HUP));
+
+	g_mutex_lock (&job->lock);
+	g_object_freeze_notify (G_OBJECT (job));
 
 	if (channel == jp->channel[STDERR_FILENO])
 		thisfd = STDERR_FILENO;
@@ -816,6 +834,8 @@ pd_job_impl_message_io_cb (GIOChannel *channel,
 	}
 
  out:
+	g_mutex_unlock (&job->lock);
+	g_object_thaw_notify (G_OBJECT (job));
 	if (line)
 		g_free (line);
 	return keep_source;
@@ -1261,8 +1281,10 @@ pd_job_impl_run_process (PdJobImpl *job,
  * pd_job_impl_start_processing:
  * @job: A #PdJobImpl
  *
- * The job state is processing and the printer is ready so
- * start processing the job.
+ * The job state is processing and the printer is ready so start
+ * processing the job.
+ *
+ * This must be called while holding the @job's lock.
  */
 static void
 pd_job_impl_start_processing (PdJobImpl *job)
@@ -1507,6 +1529,9 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	GIOChannel *channel;
 	struct _PdJobProcess *jp;
 
+	g_mutex_lock (&job->lock);
+	g_object_freeze_notify (G_OBJECT (job));
+
 	pd_job_impl_add_state_reason (job, "job-outgoing");
 
 	if (!job->filterchain) {
@@ -1574,6 +1599,8 @@ pd_job_impl_start_sending (PdJobImpl *job)
 				jp);
 
  out:
+	g_mutex_unlock (&job->lock);
+	g_object_thaw_notify (G_OBJECT (job));
 	return;
 }
 
@@ -1600,6 +1627,14 @@ pd_job_impl_job_state_notify (PdJobImpl *job)
 	}
 }
 
+/**
+ * pd_job_impl_set_attribute:
+ * @job: A #PdJobImpl
+ * @name: Attribute name
+ * @value: Attribute value
+ *
+ * Set a job attribute or update an existing job attribute.
+ */
 void
 pd_job_impl_set_attribute (PdJobImpl *job,
 			   const gchar *name,
@@ -1612,6 +1647,9 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 	GHashTableIter htiter;
 	gchar *dkey;
 	GVariant *dvalue;
+
+	g_mutex_lock (&job->lock);
+	g_object_freeze_notify (G_OBJECT (job));
 
 	/* Read the current value of the 'attributes' property */
 	attributes = pd_job_get_attributes (PD_JOB (job));
@@ -1645,6 +1683,8 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 	pd_job_set_attributes (PD_JOB (job),
 			       g_variant_builder_end (&builder));
 
+	g_mutex_unlock (&job->lock);
+	g_object_thaw_notify (G_OBJECT (job));
 	g_hash_table_unref (ht);
 }
 
@@ -1671,7 +1711,14 @@ pd_job_impl_add_document (PdJob *_job,
 						 options,
 						 N_("Authentication is required to add a job"),
 						 invocation))
-		goto out;
+		return TRUE;
+
+	/* Get the requesting user before holding the lock as it uses
+	 * sync D-Bus calls */
+	requesting_user = pd_get_unix_user (invocation);
+
+	g_mutex_lock (&job->lock);
+	g_object_freeze_notify (G_OBJECT (job));
 
 	/* Check if this user owns the job */
 	attr_user = get_attribute_value (PD_JOB (job),
@@ -1680,7 +1727,6 @@ pd_job_impl_add_document (PdJob *_job,
 		originating_user = g_variant_get_string (attr_user, NULL);
 		g_variant_unref (attr_user);
 	}
-	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
 		job_debug (PD_JOB (job), "AddDocument: denied "
 			   "[originating user: %s; requesting user: %s]",
@@ -1734,6 +1780,8 @@ pd_job_impl_add_document (PdJob *_job,
 	g_dbus_method_invocation_return_value (invocation, NULL);
 
  out:
+	g_mutex_unlock (&job->lock);
+	g_object_thaw_notify (G_OBJECT (job));
 	g_free (requesting_user);
 	return TRUE; /* handled the method invocation */
 }
@@ -1760,7 +1808,14 @@ pd_job_impl_start (PdJob *_job,
 						 options,
 						 N_("Authentication is required to add a job"),
 						 invocation))
-		goto out;
+		return TRUE;
+
+	/* Get the requesting user before holding the lock as it uses
+	 * sync D-Bus calls */
+	requesting_user = pd_get_unix_user (invocation);
+
+	g_mutex_lock (&job->lock);
+	g_object_freeze_notify (G_OBJECT (job));
 
 	/* Check if this user owns the job */
 	attr_user = get_attribute_value (PD_JOB (job),
@@ -1769,7 +1824,6 @@ pd_job_impl_start (PdJob *_job,
 		originating_user = g_variant_get_string (attr_user, NULL);
 		g_variant_unref (attr_user);
 	}
-	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
 		job_debug (PD_JOB (job), "AddDocument: denied "
 			   "[originating user: %s; requesting user: %s]",
@@ -1915,6 +1969,9 @@ pd_job_impl_start (PdJob *_job,
 					       g_variant_new ("()"));
 
  out:
+	g_mutex_unlock (&job->lock);
+	g_object_thaw_notify (G_OBJECT (job));
+
 	g_free (requesting_user);
 	if (input)
 		g_object_unref (input);
@@ -2044,7 +2101,14 @@ pd_job_impl_cancel (PdJob *_job,
 						 options,
 						 N_("Authentication is required to cancel a job"),
 						 invocation))
-		goto out;
+		return TRUE;
+
+	/* Get the requesting user before holding the lock as it uses
+	 * sync D-Bus calls */
+	requesting_user = pd_get_unix_user (invocation);
+
+	g_mutex_lock (&job->lock);
+	g_object_freeze_notify (G_OBJECT (job));
 
 	/* Check if this user owns the job */
 	attr_user = get_attribute_value (PD_JOB (job),
@@ -2053,7 +2117,6 @@ pd_job_impl_cancel (PdJob *_job,
 		originating_user = g_variant_get_string (attr_user, NULL);
 		g_variant_unref (attr_user);
 	}
-	requesting_user = pd_get_unix_user (invocation);
 	if (g_strcmp0 (originating_user, requesting_user)) {
 		job_debug (PD_JOB (job), "AddDocument: denied "
 			   "[originating user: %s; requesting user: %s]",
@@ -2110,6 +2173,8 @@ pd_job_impl_cancel (PdJob *_job,
 	}
 
  out:
+	g_mutex_unlock (&job->lock);
+	g_object_thaw_notify (G_OBJECT (job));
 	g_free (requesting_user);
 	return TRUE; /* handled the method invocation */
 }
