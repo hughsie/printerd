@@ -1648,18 +1648,25 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 			   GVariant *value)
 {
 	GVariant *attributes;
-	GVariantBuilder builder;
-	GVariantIter viter;
-	GHashTable *ht;
-	GHashTableIter htiter;
-	gchar *dkey;
-	GVariant *dvalue;
 
 	g_mutex_lock (&job->lock);
 	g_object_freeze_notify (G_OBJECT (job));
 
 	/* Read the current value of the 'attributes' property */
 	attributes = pd_job_get_attributes (PD_JOB (job));
+
+#if GLIB_CHECK_VERSION(2,40,0)
+	GVariantDict *dict = g_variant_dict_new (attributes);
+	g_variant_dict_insert_value (dict, name, value);
+	pd_job_set_attributes (PD_JOB (job),
+			       g_variant_dict_end (dict));
+#else /* older version */
+	GVariantBuilder builder;
+	GVariantIter viter;
+	GHashTable *ht;
+	GHashTableIter htiter;
+	gchar *dkey;
+	GVariant *dvalue;
 
 	/* Convert to a GHashTable */
 	ht = g_hash_table_new_full (g_str_hash,
@@ -1689,10 +1696,11 @@ pd_job_impl_set_attribute (PdJobImpl *job,
 	/* Write it back */
 	pd_job_set_attributes (PD_JOB (job),
 			       g_variant_builder_end (&builder));
+	g_hash_table_unref (ht);
+#endif /* glib < 2.40 */
 
 	g_mutex_unlock (&job->lock);
 	g_object_thaw_notify (G_OBJECT (job));
-	g_hash_table_unref (ht);
 }
 
 /* ------------------------------------------------------------------ */

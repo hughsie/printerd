@@ -911,13 +911,23 @@ pd_engine_printer_state_notify	(PdPrinter *printer)
 GList *
 pd_engine_dup_printer_ids	(PdEngine *engine)
 {
-	GList *keys;
+	GList *copy, *keys;
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 	g_mutex_lock (&engine->priv->lock);
 	keys = g_hash_table_get_keys (engine->priv->id_to_printer);
-	keys = g_list_copy_deep (keys, (GCopyFunc) g_strdup, NULL);
+#if 0 && GLIB_CHECK_VERSION(2,34,0)
+	copy = g_list_copy_deep (keys, (GCopyFunc) g_strdup, NULL);
+#else /* older version */
+	GList *each;
+	copy = NULL;
+	for (each = g_list_first (keys);
+	     each;
+	     each = g_list_next (each))
+		copy = g_list_append (copy, g_strdup (each->data));
+#endif /* glib < 2.34 */
 	g_mutex_unlock (&engine->priv->lock);
-	return keys;
+	g_list_free (keys);
+	return copy;
 }
 
 /**
