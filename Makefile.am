@@ -104,7 +104,7 @@ DISTCHECK_CONFIGURE_FLAGS =				\
 	--with-systemdsystemunitdir=
 
 distclean-local:
-	if test $(srdcir) = .; then :; else \
+	if test $(srcdir) = .; then :; else \
 		rm -f ChangeLog; \
 	fi
 
