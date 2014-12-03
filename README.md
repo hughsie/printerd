@@ -45,3 +45,31 @@ out-of-process, which would be a client for the printerd D-Bus
 interface.
 
 Translations can be submitted at [Transifex](https://www.transifex.com/projects/p/printerd/).
+
+Structure
+---------
+
+The `data/` directory contains:
+* the D-Bus interface, configuration, and service definition,
+* the polkit configuration, and
+* the systemd service file
+
+in the `printerd/` directory is client code for communicating with
+printerd from C and using GObject introspection, as well as code
+generated from the interface definition.
+
+The service implementation lives in the `src/` directory. The service
+is implemented using GDBusObjectManager to export the various objects
+to D-Bus. This involves having skeleton objects such as PdJob, which
+hold the properties defined in the interface, and implementation
+objects such as PdJobImpl (inheriting from PdJob) which provide the
+method implementations.
+
+The Printer and Device objects set a flag telling the
+GDBusObjectManager to handle each D-Bus method invocation in its own
+thread. The Job object handles all method invocations in the main
+context.
+
+Orchestrating the Device, Printer, and Job objects is the
+PdEngine. The engine decides on actions, for example when to start
+jobs.
