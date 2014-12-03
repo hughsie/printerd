@@ -1722,10 +1722,11 @@ pd_job_impl_add_document (PdJob *_job,
 
 	/* Check if the user is authorized to add a document */
 	if (!pd_daemon_check_authorization_sync (job->daemon,
-						 "org.freedesktop.printerd.job-add",
 						 options,
 						 N_("Authentication is required to add a job"),
-						 invocation))
+						 invocation,
+						 "org.freedesktop.printerd.job-add",
+						 NULL))
 		return TRUE;
 
 	/* Get the requesting user before holding the lock as it uses
@@ -1819,10 +1820,11 @@ pd_job_impl_start (PdJob *_job,
 
 	/* Check if the user is authorized to start a job */
 	if (!pd_daemon_check_authorization_sync (job->daemon,
-						 "org.freedesktop.printerd.job-add",
 						 options,
 						 N_("Authentication is required to add a job"),
-						 invocation))
+						 invocation,
+						 "org.freedesktop.printerd.job-add",
+						 NULL))
 		return TRUE;
 
 	/* Get the requesting user before holding the lock as it uses
@@ -2112,10 +2114,11 @@ pd_job_impl_cancel (PdJob *_job,
 
 	/* Check if the user is authorized to cancel this job */
 	if (!pd_daemon_check_authorization_sync (job->daemon,
-						 "org.freedesktop.printerd.job-cancel",
 						 options,
 						 N_("Authentication is required to cancel a job"),
-						 invocation))
+						 invocation,
+						 "org.freedesktop.printerd.job-cancel",
+						 NULL))
 		return TRUE;
 
 	/* Get the requesting user before holding the lock as it uses

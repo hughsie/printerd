@@ -300,10 +300,12 @@ pd_device_impl_create_printer (PdDevice *_device,
 
 	/* Check if the user is authorized to create a printer */
 	if (!pd_daemon_check_authorization_sync (device->daemon,
-						 "org.freedesktop.printerd.printer-add",
 						 options,
 						 N_("Authentication is required to add a printer"),
-						 invocation))
+						 invocation,
+						 "org.freedesktop.printerd.all-edit",
+						 "org.freedesktop.printerd.printer-add",
+						 NULL))
 		goto out;
 
 	pd_device_impl_complete_create_printer (_device,

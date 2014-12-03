@@ -10,6 +10,16 @@
   <icon_name>printer</icon_name>
 
   <!-- Operations on printers -->
+  <action id="org.freedesktop.printerd.all-edit">
+    <_description>Add, modify, or delete a printer</_description>
+    <_message>Authentication is required to modify printers</_message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
   <action id="org.freedesktop.printerd.printer-add">
     <_description>Add a printer</_description>
     <_message>Authentication is required to add a printer</_message>
@@ -40,6 +50,7 @@
     </defaults>
   </action>
 
+  <!-- Operations on jobs -->
   <action id="org.freedesktop.printerd.job-cancel">
     <_description>Cancel a job</_description>
     <_message>Authentication is required to cancel a job</_message>

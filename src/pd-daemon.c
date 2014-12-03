@@ -340,16 +340,19 @@ pd_daemon_get_engine (PdDaemon *daemon)
  */
 gboolean
 pd_daemon_check_authorization_sync (PdDaemon *daemon,
-				    const gchar *action_id,
 				    GVariant *options,
 				    const gchar *message,
-				    GDBusMethodInvocation *invocation)
+				    GDBusMethodInvocation *invocation,
+				    const gchar *first_action_id,
+				    ...)
 {
+	va_list va_args;
+	const gchar *action_id, *next_action_id;
 	gboolean ret = FALSE;
 	GError *error = NULL;
 	const gchar *sender;
 	PolkitSubject *subject;
-	PolkitCheckAuthorizationFlags flags;
+	PolkitCheckAuthorizationFlags flags = 0;
 	PolkitAuthorizationResult *result = NULL;
 
 	if (daemon->is_session) {
@@ -359,15 +362,31 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 
 	sender = g_dbus_method_invocation_get_sender (invocation);
 	subject = polkit_system_bus_name_new (sender);
-	flags = POLKIT_CHECK_AUTHORIZATION_FLAGS_ALLOW_USER_INTERACTION;
 
-	result = polkit_authority_check_authorization_sync (daemon->authority,
-							    subject,
-							    action_id,
-							    NULL,
-							    flags,
-							    NULL,
-							    &error);
+	va_start (va_args, first_action_id);
+	action_id = first_action_id;
+	while (action_id) {
+		next_action_id = va_arg (va_args, const gchar *);
+		if (!next_action_id)
+			flags = POLKIT_CHECK_AUTHORIZATION_FLAGS_ALLOW_USER_INTERACTION;
+		if (error) {
+			g_error_free (error);
+			error = NULL;
+		}
+
+		result = polkit_authority_check_authorization_sync (daemon->authority,
+								    subject,
+								    action_id,
+								    NULL,
+								    flags,
+								    NULL,
+								    &error);
+		if (result)
+			break;
+
+		action_id = next_action_id;
+	}
+
 	g_object_unref (subject);
 	if (error) {
 		g_warning ("[Daemon] Checking authorization: %s",
@@ -380,7 +399,7 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 
 	if (result == NULL ||
 	    !polkit_authorization_result_get_is_authorized (result)) {
-		g_debug ("[Daemon] %s not authorized to add printer", sender);
+		g_debug ("[Daemon] %s not authorized", sender);
 		g_dbus_method_invocation_return_error (invocation,
 						       PD_ERROR,
 						       PD_ERROR_FAILED,

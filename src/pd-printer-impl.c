@@ -463,10 +463,12 @@ pd_printer_impl_update_defaults (PdPrinter *_printer,
 
 	/* Check if the user is authorized to do this */
 	if (!pd_daemon_check_authorization_sync (printer->daemon,
-						 "org.freedesktop.printerd.printer-modify",
 						 NULL,
 						 N_("Authentication is required to modify a printer"),
-						 invocation))
+						 invocation,
+						 "org.freedesktop.printerd.all-edit",
+						 "org.freedesktop.printerd.printer-modify",
+						 NULL))
 		goto out;
 
 	pd_printer_impl_complete_update_defaults (_printer,
@@ -605,15 +607,23 @@ pd_printer_impl_set_device_uris (PdPrinter *_printer,
 				 GDBusMethodInvocation *invocation,
 				 const gchar *const *device_uris)
 {
-	/* Check if the user is authorized to create a printer */
-	//if (!pd_daemon_util_check_authorization_sync ())
-	//	goto out;
+	PdPrinterImpl *printer = PD_PRINTER_IMPL (_printer);
+
+	/* Check if the user is authorized to set device URIs */
+	if (!pd_daemon_check_authorization_sync (printer->daemon,
+						 NULL,
+						 N_("Authentication is required to modify a printer"),
+						 invocation,
+						 "org.freedesktop.printerd.all-edit",
+						 "org.freedesktop.printerd.printer-modify",
+						 NULL))
+		goto out;
 
 	pd_printer_impl_complete_set_device_uris (_printer,
 						  invocation,
 						  device_uris);
 
-	//out:
+out:
 	return TRUE; /* handled the method invocation */
 }
 
@@ -844,10 +854,11 @@ pd_printer_impl_create_job (PdPrinter *_printer,
 
 	/* Check if the user is authorized to create a job */
 	if (!pd_daemon_check_authorization_sync (printer->daemon,
-						 "org.freedesktop.printerd.job-add",
 						 options,
 						 N_("Authentication is required to add a job"),
-						 invocation))
+						 invocation,
+						 "org.freedesktop.printerd.job-add",
+						 NULL))
 		goto out;
 
 	pd_printer_impl_complete_create_job (_printer,
