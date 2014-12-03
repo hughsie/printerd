@@ -126,6 +126,8 @@ ChangeLog:
 
 EXTRA_DIST = \
 	tests/common.sh tests/start-session-service.sh \
-	$(TESTS) $(XFAIL_TESTS)
+	$(TESTS) $(XFAIL_TESTS) \
+	README.md TESTS.md \
+	contrib/printerd.spec
 
 -include $(top_srcdir)/git.mk

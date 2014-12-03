@@ -1,9 +1,7 @@
-%define alphatag                #ALPHATAG#
-
 Summary:   Printer daemon
 Name:      printerd
-Version:   #VERSION#
-Release:   0.#BUILD#%{?alphatag}%{?dist}
+Version:   @VERSION@
+Release:   0%{?dist}
 License:   GPLv2+
 URL:       http://www.freedesktop.org/software/printerd/
 Source0:   http://www.freedesktop.org/software/printerd/releases/%{name}-%{version}.tar.xz
@@ -37,29 +35,29 @@ Files for development with %{name}.
 %configure \
         --disable-static \
         --disable-rpath \
-        --disable-dependency-tracking
+        --disable-dependency-tracking \
+        --with-systemdsystemunitdir=%{_unitdir}
 
 make %{?_smp_mflags}
 
 %install
-make install DESTDIR=$RPM_BUILD_ROOT
+make install DESTDIR=$RPM_BUILD_ROOT systemdservicedir=%{_unitdir}
 
 # Remove static libs and libtool archives.
 find %{buildroot} -name '*.la' -exec rm -f {} ';'
 find %{buildroot} -name '*.a' -exec rm -f {} ';'
 
-#%find_lang %{name}
+%find_lang %{name}
 
 %post -p /sbin/ldconfig
 
 %postun -p /sbin/ldconfig
 
-%files
-# -f %{name}.lang
+%files -f %{name}.lang
 %defattr(-,root,root,-)
-%doc README AUTHORS NEWS COPYING
+%doc README.md TESTS.md AUTHORS NEWS COPYING
 %{_libexecdir}/printerd
-#%{_bindir}/*
+%{_bindir}/*
 %{_sysconfdir}/dbus-1/system.d/org.freedesktop.printerd.conf
 #%{_datadir}/dbus-1/interfaces/org.freedesktop.printerd*.xml
 %{_datadir}/polkit-1/actions/org.freedesktop.printerd.policy
@@ -69,7 +67,7 @@ find %{buildroot} -name '*.a' -exec rm -f {} ';'
 #%config %{_sysconfdir}/printerd.conf
 #/lib/udev/rules.d/*.rules
 %{_libdir}/girepository-1.0/*.typelib
-/lib/systemd/system/*.service
+%{_unitdir}/*.service
 
 %files devel
 %defattr(-,root,root,-)
@@ -79,6 +77,6 @@ find %{buildroot} -name '*.a' -exec rm -f {} ';'
 %{_datadir}/gir-1.0/*.gir
 
 %changelog
-* #LONGDATE# Richard Hughes <richard@hughsie.com> #VERSION#-0.#BUILD##ALPHATAG#
+* Wed Dec  3 2014 Richard Hughes <richard@hughsie.com> @VERSION@-0
 - Update from git
 

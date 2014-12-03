@@ -3,7 +3,7 @@ AC_INIT([printerd],
 	[https://github.com/hughsie/printerd/issues],
 	[printerd])
 
-AM_INIT_AUTOMAKE([1.9 no-dist-gzip dist-xz tar-ustar])
+AM_INIT_AUTOMAKE([1.9 no-dist-gzip dist-xz tar-ustar foreign])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([src])
 AC_CONFIG_HEADERS([config.h])
@@ -113,6 +113,7 @@ doc/Makefile
 doc/version.xml
 doc/man/Makefile
 po/Makefile.in
+contrib/printerd.spec
 ])
 
 dnl ==========================================================================
