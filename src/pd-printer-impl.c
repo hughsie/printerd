@@ -360,7 +360,10 @@ pd_printer_impl_set_driver (PdPrinterImpl *printer,
 		cost = atoi (tokens[1]);
 		printer_debug (PD_PRINTER (printer), "Filter: %s (cost %d)",
 			       tokens[0], cost);
-		if (!best_format || cost < best_cost) {
+		if (!best_format) {
+			best_format = g_strdup (tokens[0]);
+			best_cost = cost;
+		} else if (cost < best_cost) {
 			if (best_format)
 				g_free (best_format);
 
