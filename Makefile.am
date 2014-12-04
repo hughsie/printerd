@@ -69,8 +69,7 @@ TESTS = \
 
 # Some tests are known to fail at the moment.
 XFAIL_TESTS = \
-	tests/createprinter3/run-test \
-	tests/python1/run-test
+	tests/createprinter3/run-test
 
 # Start the session daemon before running the tests
 $(TESTS:run-test=run-test.log): printerd-session.pid

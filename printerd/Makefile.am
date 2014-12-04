@@ -126,6 +126,15 @@ printerd_1_0_gir_EXPORT_PACKAGES = printerd
 
 include $(INTROSPECTION_MAKEFILE)
 
+# Fix up generated code (GNOME #741167)
+libprinterd.la: fix-up-generated
+
+fix-up-generated: pd-generated.c
+	@echo "  Working around GNOME bug #741167"
+	@sed -i -e 's,\(out_\(printers\|devices\|drivers\): (out)\):,\1 (array zero-terminated=1):,' $<
+
+.PHONY: fix-up-generated
+
 endif # HAVE_INTROSPECTION
 
 # ----------------------------------------------------------------------
