@@ -29,6 +29,15 @@ tests/started/run-test:
 		chmod a+x $(top_srcdir)/$$test; \
 	done
 
+ALL_INTROSPECTION_TESTS = \
+	tests/python1/run-test
+
+if HAVE_INTROSPECTION
+INTROSPECTION_TESTS = $(ALL_INTROSPECTION_TESTS)
+else
+INTROSPECTION_TESTS =
+endif
+
 # Here's where most of the tests go.
 AFTER_GETPRINTERS_TESTS = \
 	tests/createprinter1/run-test \
@@ -41,7 +50,7 @@ AFTER_GETPRINTERS_TESTS = \
 	tests/job3/run-test \
 	tests/job4/run-test \
 	tests/cupsfilter/run-test \
-	tests/python1/run-test
+	$(INTROSPECTION_TESTS)
 
 # Some tests have to run at the beginning.
 ALL_TESTS = \
@@ -131,6 +140,7 @@ ChangeLog:
 EXTRA_DIST = \
 	tests/common.sh tests/start-session-service.sh \
 	$(TESTS) $(XFAIL_TESTS) \
+	$(INTROSPECTION_TESTS) \
 	tests/python1/Manager.GetPrinters.py \
 	README.md TESTS.md \
 	contrib/printerd.spec
