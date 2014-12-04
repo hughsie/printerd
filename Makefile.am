@@ -131,6 +131,7 @@ ChangeLog:
 EXTRA_DIST = \
 	tests/common.sh tests/start-session-service.sh \
 	$(TESTS) $(XFAIL_TESTS) \
+	tests/python1/Manager.GetPrinters.py \
 	README.md TESTS.md \
 	contrib/printerd.spec
 
