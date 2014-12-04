@@ -1,0 +1,60 @@
+#!/bin/bash
+
+. "${top_srcdir-.}"/tests/common.sh
+
+OUTPUT="$(mktemp /tmp/printerd-XXXXXXXXXX)"
+function finish {
+    rm -f "$OUTPUT"
+}
+trap finish EXIT
+
+# Create a printer.
+printf "CreatePrinter\n"
+result=$(gdbus call --session \
+	       --dest $PD_DEST \
+	       --object-path $PD_PATH/Manager \
+	       --method $PD_IFACE.Manager.CreatePrinter \
+	       "{}" \
+	       "python1" \
+	       "printer description" \
+	       "printer location" \
+	       '["ipp://remote:631/printers/remote"]' \
+	       "{}")
+
+objpath=$(printf "%s" "$result" | sed -ne "s:^(objectpath '\(.*\)',):\1:p")
+if [ -z "$objpath" ]; then
+  printf "Expected (objectpath): %s\n" "$result"
+  result_is 1
+fi
+
+# Now try to examine it using Python
+PD_USE_SESSION_BUS=1 \
+LD_LIBRARY_PATH=${top_builddir}/printerd/.libs:$LD_LIBRARY_PATH \
+GI_TYPELIB_PATH=${top_builddir}/printerd \
+${PYTHON} "$(dirname $0)"/Manager.GetPrinters.py > "$OUTPUT"
+cat "$OUTPUT"
+RETVAL=$?
+if [ "$RETVAL" -ne 0 ]; then
+    result_is $RETVAL
+fi
+
+if ! grep -q "$objpath" "$OUTPUT"; then
+    printf "%s not in GetPrinters result\n" "$objpath"
+    result_is 1
+fi
+
+# Delete the printer again
+printf "DeletePrinter\n"
+result=$(gdbus call --session \
+  --dest $PD_DEST \
+  --object-path $PD_PATH/Manager \
+  --method $PD_IFACE.Manager.DeletePrinter \
+  "{}" \
+  "$objpath")
+
+if [ "$result" != "()" ]; then
+  printf "Expected (): %s\n" "$result"
+  result_is 1
+fi
+
+result_is 0

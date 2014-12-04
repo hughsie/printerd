@@ -9,11 +9,13 @@ SUBDIRS = 						\
 	po
 
 # Regression tests
+PYTHON=python
 TEST_BOOKMARK=$(top_builddir)/printerd-session.lines-before-test
 TEST_SESSION_LOG=$(top_builddir)/printerd-session.log
 TESTS_ENVIRONMENT = \
 	top_srcdir=$(top_srcdir) \
 	top_builddir=$(top_builddir) \
+	PYTHON=$(PYTHON) \
 	BOOKMARK=$(TEST_BOOKMARK) \
 	SESSION_LOG=$(TEST_SESSION_LOG)
 
@@ -38,7 +40,8 @@ AFTER_GETPRINTERS_TESTS = \
 	tests/job2/run-test \
 	tests/job3/run-test \
 	tests/job4/run-test \
-	tests/cupsfilter/run-test
+	tests/cupsfilter/run-test \
+	tests/python1/run-test
 
 # Some tests have to run at the beginning.
 ALL_TESTS = \
@@ -57,7 +60,8 @@ TESTS = \
 
 # Some tests are known to fail at the moment.
 XFAIL_TESTS = \
-	tests/createprinter3/run-test
+	tests/createprinter3/run-test \
+	tests/python1/run-test
 
 # Start the session daemon before running the tests
 $(TESTS:run-test=run-test.log): printerd-session.pid
