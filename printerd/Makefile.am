@@ -15,7 +15,9 @@ AM_CPPFLAGS = \
 	$(WARN_CFLAGS)							\
 	$(NULL)
 
-$(dbus_built_sources) : Makefile.am $(top_srcdir)/data/org.freedesktop.printerd.xml
+$(dbus_built_sources): .stamp-dbus-built-sources
+
+.stamp-dbus-built-sources: Makefile.am $(top_srcdir)/data/org.freedesktop.printerd.xml
 	gdbus-codegen							\
 		--interface-prefix org.freedesktop.printerd.		\
 		--c-namespace Pd					\
@@ -24,6 +26,7 @@ $(dbus_built_sources) : Makefile.am $(top_srcdir)/data/org.freedesktop.printerd.
 		--generate-docbook pd-generated-doc			\
 		$(top_srcdir)/data/org.freedesktop.printerd.xml		\
 		$(NULL)
+	@touch $@
 
 pd-enumtypes.h: pd-enums.h pd-enumtypes.h.template
 	( top_builddir=`cd $(top_builddir) && pwd`;					\
@@ -126,14 +129,27 @@ printerd_1_0_gir_EXPORT_PACKAGES = printerd
 
 include $(INTROSPECTION_MAKEFILE)
 
-# Fix up generated code (GNOME #741167)
-libprinterd.la: fix-up-generated
-
-fix-up-generated: pd-generated.c
+.stamp-fix-up-generated: $(libprinterd_la_SOURCES)
 	@echo "  Working around GNOME bug #741167"
-	@sed -i -e 's,\(out_\(printers\|devices\|drivers\): (out)\):,\1 (array zero-terminated=1):,' $<
+	@sed -i -e 's,\(out_\(printers\|devices\|drivers\): (out)\):,\1 (array zero-terminated=1):,' pd-generated.c
+	@touch $@
 
-.PHONY: fix-up-generated
+printerd-1.0.gir: $(printerd_1_0_gir_FILES) .stamp-fix-up-generated
+	$(_gir_silent_scanner_prefix) $(INTROSPECTION_SCANNER_ENV) $(INTROSPECTION_SCANNER) $(_gir_silent_scanner_opts) \
+	$(INTROSPECTION_SCANNER_ARGS) \
+	  --namespace=$(_gir_namespace) \
+	  --nsversion=$(_gir_version) \
+	  $(_gir_libtool) \
+	  --include=Gio-2.0 \
+	  --pkg-export=printerd \
+	  --library=libprinterd.la \
+	  $(printerd_1_0_gir_SCANNERFLAGS) \
+	  --cflags-begin \
+	  $(printerd_1_0_gir_CFLAGS) \
+	  --cflags-end \
+	  $(printerd_1_0_gir_LDFLAGS) \
+	  $^ \
+	  --output $@
 
 endif # HAVE_INTROSPECTION
 
@@ -151,6 +167,6 @@ dist-hook :
 	(for i in $(BUILT_SOURCES) ; do rm -f $(distdir)/$$i ; done)
 
 clean-local :
-	rm -f *~ $(BUILT_SOURCES)
+	rm -f *~ $(BUILT_SOURCES) .stamp-fix-up-generated .stamp-dbus-built-sources
 
 -include $(top_srcdir)/git.mk
