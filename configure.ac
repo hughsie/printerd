@@ -106,6 +106,7 @@ AC_OUTPUT([
 Makefile
 data/Makefile
 printerd/Makefile
+ippd/Makefile
 printerd/printerd.pc
 src/Makefile
 tools/Makefile

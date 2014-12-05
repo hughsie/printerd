@@ -73,3 +73,7 @@ context.
 Orchestrating the Device, Printer, and Job objects is the
 PdEngine. The engine decides on actions, for example when to start
 jobs.
+
+IPP support is provided in the `ippd/` directory. This works by
+running a Python http.server handling the IPP requests by backing them
+with calls into printerd.

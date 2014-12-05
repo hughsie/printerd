@@ -57,6 +57,7 @@ find %{buildroot} -name '*.a' -exec rm -f {} ';'
 %defattr(-,root,root,-)
 %doc README.md TESTS.md AUTHORS NEWS COPYING
 %{_libexecdir}/printerd
+%{_libexecdir}/ippd
 %{_bindir}/*
 %{_sysconfdir}/dbus-1/system.d/org.freedesktop.printerd.conf
 #%{_datadir}/dbus-1/interfaces/org.freedesktop.printerd*.xml
@@ -68,6 +69,7 @@ find %{buildroot} -name '*.a' -exec rm -f {} ';'
 #/lib/udev/rules.d/*.rules
 %{_libdir}/girepository-1.0/*.typelib
 %{_unitdir}/*.service
+%{_unitdir}/*.socket
 
 %files devel
 %defattr(-,root,root,-)

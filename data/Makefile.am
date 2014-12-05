@@ -12,13 +12,16 @@ dbusconf_DATA = $(dbusconf_in_files:.conf.in=.conf)
 $(dbusconf_DATA): $(dbusconf_in_files) Makefile
 	cp $< $@
 
-systemdservice_in_files = printerd.service.in
+systemdservice_in_files = printerd.service.in ippd.service.in
+systemdsocket_files = ippd.socket
 
 if HAVE_SYSTEMD
 systemdservicedir       = $(DESTDIR)$(systemdsystemunitdir)
-systemdservice_DATA     = $(systemdservice_in_files:.service.in=.service)
+systemdservice_DATA     = \
+	$(systemdservice_in_files:.service.in=.service) \
+	$(systemdsocket_files)
 
-$(systemdservice_DATA): $(systemdservice_in_files) Makefile
+%.service: %.service.in Makefile
 	@sed -e "s|\@libexecdir\@|$(libexecdir)|" $< > $@
 endif
 
@@ -31,6 +34,7 @@ polkit_DATA      = $(polkit_in_files:.policy.in=.policy)
 EXTRA_DIST = 						\
 	org.freedesktop.printerd.xml			\
 	$(systemdservice_in_files)			\
+	$(systemdsocket_files)				\
 	$(dbusservice_in_files)				\
 	$(dbusconf_in_files)				\
 	$(polkit_in_files)				\

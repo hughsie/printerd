@@ -3,13 +3,24 @@ ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = 						\
 	doc						\
 	printerd					\
+	ippd						\
 	data						\
 	src						\
 	tools						\
 	po
 
+run-ippd: printerd-session.pid
+	GI_TYPELIB_PATH=$(top_builddir)/printerd \
+	DBUS_SESSION_BUS_ADDRESS=$$(cat printerd-session.bus) \
+	PD_USE_SESSION_BUS=1 \
+	$(PYTHON3) $(top_srcdir)/ippd/ippd.py
+
+stop-session-service:
+	tests/stop-session-service/run-test
+
 # Regression tests
 PYTHON=python
+PYTHON3=python3
 TEST_BOOKMARK=$(top_builddir)/printerd-session.lines-before-test
 TEST_SESSION_LOG=$(top_builddir)/printerd-session.log
 TESTS_ENVIRONMENT = \
@@ -142,6 +153,7 @@ EXTRA_DIST = \
 	$(INTROSPECTION_TESTS) \
 	tests/python1/Manager.GetPrinters.py \
 	README.md TESTS.md \
-	contrib/printerd.spec
+	contrib/printerd.spec \
+	ippd/ippd.py
 
 -include $(top_srcdir)/git.mk

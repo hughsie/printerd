@@ -25,10 +25,11 @@ Some tips for debugging problems found using the test suite:
 * To simply start printerd on its own session bus, you can use `make
   printerd-session.pid`.
 * To stop a printerd service started that way, you can run
-  `tests/stop-session-service/run-test` directly.
+  `make stop-session-service`.
 * To run all the tests without stopping the service at the end, run
   `make check STOP_TESTS=`.
 * To attach gdb to the running printerd, be aware that it was started
   using libtool and so you'll need to run `gdb src/.libs/lt-printerd
   $(cat printerd-session.pid)`.
-
+* You can run ippd against the session printerd service with `make
+  run-ippd`.

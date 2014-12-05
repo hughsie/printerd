@@ -1,0 +1,7 @@
+[Unit]
+Description=IPP Daemon
+
+[Service]
+ExecStart=@libexecdir@/ippd
+StandardOutput=syslog
+StandardError=syslog

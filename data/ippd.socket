@@ -1,0 +1,8 @@
+[Unit]
+Description=IPP Daemon socket
+
+[Socket]
+ListenStream=631
+
+[Install]
+WantedBy=sockets.target
