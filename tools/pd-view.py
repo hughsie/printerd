@@ -133,9 +133,9 @@ class MainWindow(GObject.GObject):
         return path
 
     def set_printer_state (self, printeriter, iface):
-        statemap = { 3: "Idle",
-                     4: "Processing",
-                     5: "Stopped" }
+        statemap = { printerd.PrinterState.IDLE:        "Idle",
+                     printerd.PrinterState.PROCESSING:  "Processing",
+                     printerd.PrinterState.STOPPED:     "Stopped" }
         state = iface.get_property ('state')
         state_str = statemap.get (state, "Unknown")
         self.store.set_value (printeriter, self.TVCOL_STATE, state_str)
@@ -191,13 +191,13 @@ class MainWindow(GObject.GObject):
         return path
 
     def set_job_state (self, jobiter, iface):
-        statemap = { 3: "Pending",
-                     4: "Held",
-                     5: "Processing",
-                     6: "Paused",
-                     7: "Canceled",
-                     8: "Aborted",
-                     9: "Completed" }
+        statemap = { printerd.JobState.PENDING:                 "Pending",
+                     printerd.JobState.PENDING_HELD:            "Held",
+                     printerd.JobState.PROCESSING:              "Processing",
+                     printerd.JobState.PROCESSING_STOPPED:      "Paused",
+                     printerd.JobState.CANCELED:                "Canceled",
+                     printerd.JobState.ABORTED:                 "Aborted",
+                     printerd.JobState.COMPLETED:               "Completed" }
         state = iface.get_property ('state')
         state_str = statemap.get (state, "Unknown")
         self.store.set_value (jobiter, self.TVCOL_STATE, state_str)
