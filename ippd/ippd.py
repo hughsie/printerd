@@ -134,7 +134,11 @@ class SocketInheritingIPPServer(ForkingHTTPServer):
             # Only activate, as systemd provides ready-bound sockets.
             self.server_activate ()
 
-server_address = ('', 631)
+if os.getuid() == 0:
+    server_address = ('', 631)
+else:
+    server_address = ('', 8631)
+
 if os.environ.get ('LISTEN_PID', None) == str (os.getpid ()):
     SYSTEMD_FIRST_SOCKET_FD = 3
     ippd = SocketInheritingIPPServer (server_address, IPPServer,
