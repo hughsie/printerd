@@ -103,10 +103,11 @@ class IPPServer(BaseHTTPRequestHandler):
             first = False
             printer = self.printerd.get_printer (objpath)
 
+            name = objpath[objpath.rfind ("/") + 1:]
             req.add (cups.IPPAttribute (cups.IPP_TAG_PRINTER,
                                         cups.IPP_TAG_NAME,
                                         "printer-name",
-                                        printer.props.name))
+                                        name))
             req.add (cups.IPPAttribute (cups.IPP_TAG_PRINTER,
                                         cups.IPP_TAG_URI,
                                         "device-uri",
