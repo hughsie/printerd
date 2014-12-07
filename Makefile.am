@@ -16,7 +16,9 @@ run-ippd: printerd-session.pid
 	$(PYTHON3) $(top_srcdir)/ippd/ippd.py
 
 stop-session-service:
-	tests/stop-session-service/run-test
+	if [ -e printerd-session.pid ]; then \
+		tests/stop-session-service/run-test; \
+	fi
 
 # Regression tests
 PYTHON=python
