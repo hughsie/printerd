@@ -13,12 +13,13 @@ $(dbusconf_DATA): $(dbusconf_in_files) Makefile
 	cp $< $@
 
 systemdservice_in_files = printerd.service.in ippd.service.in
+systemdservice_generated_files = $(systemdservice_in_files:.service.in=.service)
 systemdsocket_files = ippd.socket
 
 if HAVE_SYSTEMD
 systemdservicedir       = $(DESTDIR)$(systemdsystemunitdir)
 systemdservice_DATA     = \
-	$(systemdservice_in_files:.service.in=.service) \
+	$(systemdservice_generated_files) \
 	$(systemdsocket_files)
 
 %.service: %.service.in Makefile
@@ -44,9 +45,9 @@ DISTCLEANFILES =					\
 	$(dbusservice_DATA)				\
 	$(dbusconf_DATA)				\
 	$(polkit_DATA)					\
-	$(systemdservice_DATA)
+	$(systemdservice_generated_files)
 
 clean-local :
-	rm -f *~ $(dbusservice_DATA) $(dbusconf_DATA) $(systemdservice_DATA) $(polkit_DATA)
+	rm -f *~ $(dbusservice_DATA) $(dbusconf_DATA) $(systemdservice_generated_files) $(polkit_DATA)
 
 -include $(top_srcdir)/git.mk
