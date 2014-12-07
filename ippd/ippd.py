@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ForkingMixIn
 import os
 import socket
 import cups
@@ -117,7 +118,10 @@ class IPPServer(BaseHTTPRequestHandler):
             self.send_error (501)
             raise
 
-class SocketInheritingIPPServer(HTTPServer):
+class ForkingHTTPServer(ForkingMixIn, HTTPServer):
+    pass
+
+class SocketInheritingIPPServer(ForkingHTTPServer):
     """
     An IPPServer subclass that takes over an inherited socket from
     systemd.
