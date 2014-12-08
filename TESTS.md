@@ -33,3 +33,5 @@ Some tips for debugging problems found using the test suite:
   $(cat printerd-session.pid)`.
 * You can run ippd against the session printerd service with `make
   run-ippd`.
+* Similarly, you can run pd-view against the session printerd service
+  with `make run-pd-view`.

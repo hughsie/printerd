@@ -9,6 +9,12 @@ SUBDIRS = 						\
 	tools						\
 	po
 
+run-pd-view:
+	GI_TYPELIB_PATH=$(top_builddir)/printerd \
+	DBUS_SESSION_BUS_ADDRESS=$$(cat printerd-session.bus) \
+	PD_USE_SESSION_BUS=1 \
+	$(PYTHON3) $(top_srcdir)/tools/pd-view.py
+
 run-ippd: printerd-session.pid
 	GI_TYPELIB_PATH=$(top_builddir)/printerd \
 	DBUS_SESSION_BUS_ADDRESS=$$(cat printerd-session.bus) \
