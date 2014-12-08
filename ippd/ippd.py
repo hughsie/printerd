@@ -79,6 +79,10 @@ class Attributes(dict):
             return d
 
 class PdClient:
+    """
+    Class for getting objects using printerd.Client.
+    """
+
     IFACE_PRINTERD_PREFIX = "org.freedesktop.printerd"
     IFACE_MANAGER = IFACE_PRINTERD_PREFIX + ".Manager"
     IFACE_DEVICE  = IFACE_PRINTERD_PREFIX + ".Device"
@@ -104,6 +108,12 @@ class PdClient:
             get_interface (self.IFACE_JOB)
 
 class IPPServer(BaseHTTPRequestHandler):
+    """
+    Base class implementing common IPP parts.
+    """
+
+    IPP_METHODS = {}
+
     def __init__ (self, *args, **kwds):
         self.printerd = None
         super (BaseHTTPRequestHandler, self).__init__ (*args, **kwds)
@@ -142,30 +152,45 @@ class IPPServer(BaseHTTPRequestHandler):
         self.log_message ("%s: %s" % (cups.ippOpString (op),
                                       repr (req.attributes)))
         try:
-            if op == cups.IPP_OP_CUPS_GET_PRINTERS:
-                self.handle_cups_get_printers ()
-            else:
-                self.send_error (501, "Not implemented")
+            method_name = self.IPP_METHODS[op]
+            method = getattr (self, method_name)
+        except (KeyError, AttributeError):
+            # Not implemented
+            self.send_error (501)
+            return
+
+        try:
+            method ()
         except:
+            # Internal error
             self.send_error (500)
             raise
 
-    def send_ipp_error (self, statuscode):
+        # Send response
+        self.wfile.flush ()
+
+    def send_ipp_response (self, req):
         self.send_response (200)
         self.send_header ("Content-type", "application/ipp")
         self.end_headers ()
-        req = self.ipprequest
         req.state = cups.IPP_IDLE
-        req.statuscode = statuscode
+        self.log_message ("Response: %s" % repr (req.attributes))
         req.writeIO (self.wfile.write)
 
-    def handle_cups_get_printers (self):
-        self.send_response (200)
-        self.send_header ("Content-type", "application/ipp")
-        self.end_headers ()
-
+    def send_ipp_error (self, statuscode):
         req = self.ipprequest
-        req.state = cups.IPP_IDLE
+        req.statuscode = statuscode
+        self.send_ipp_response (req)
+
+class PdIPPServer(IPPServer):
+    """
+    Class providing implementations of IPP operations.
+    """
+
+    IPP_METHODS = { cups.IPP_OP_CUPS_GET_PRINTERS: "ipp_CUPS_Get_Printers" }
+
+    def ipp_CUPS_Get_Printers (self):
+        req = self.ipprequest
         self.get_printerd ()
         printers = self.printerd.manager.call_get_printers_sync ()
         if len (printers) > 0:
@@ -191,11 +216,7 @@ class IPPServer(BaseHTTPRequestHandler):
                                         "device-uri",
                                         printer.props.device_uris[0]))
 
-        try:
-            req.writeIO (self.wfile.write)
-        except:
-            self.send_error (501)
-            raise
+        self.send_ipp_response (req)
 
 class ForkingHTTPServer(ForkingMixIn, HTTPServer):
     pass
@@ -215,10 +236,10 @@ class SocketInheritingIPPServer(ForkingHTTPServer):
 
 if os.environ.get ('LISTEN_PID', None) == str (os.getpid ()):
     SYSTEMD_FIRST_SOCKET_FD = 3
-    ippd = SocketInheritingIPPServer (server_address, IPPServer,
+    ippd = SocketInheritingIPPServer (server_address, PdIPPServer,
                                       fd=SYSTEMD_FIRST_SOCKET_FD)
 else:
-    ippd = HTTPServer (server_address, IPPServer)
+    ippd = HTTPServer (server_address, PdIPPServer)
 
 if __name__ == '__main__':
     try:
