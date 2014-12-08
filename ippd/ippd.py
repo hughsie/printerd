@@ -220,7 +220,8 @@ if os.environ.get ('LISTEN_PID', None) == str (os.getpid ()):
 else:
     ippd = HTTPServer (server_address, IPPServer)
 
-try:
-    ippd.serve_forever ()
-except KeyboardInterrupt:
-    pass
+if __name__ == '__main__':
+    try:
+        ippd.serve_forever ()
+    except KeyboardInterrupt:
+        pass
