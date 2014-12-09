@@ -171,12 +171,16 @@ class IPPServer(BaseHTTPRequestHandler):
         self.wfile.flush ()
 
     def send_ipp_response (self, req):
-        self.send_response (200)
-        self.send_header ("Content-type", "application/ipp")
-        self.end_headers ()
         req.state = cups.IPP_IDLE
         self.log_message ("Response: %r" % req.attributes)
-        req.writeIO (self.wfile.write)
+        outstream = BytesIO ()
+        req.writeIO (outstream.write)
+        output = outstream.getvalue ()
+        self.send_response (200)
+        self.send_header ("Content-Type", "application/ipp")
+        self.send_header ("Content-Length", str (len (output)))
+        self.end_headers ()
+        self.wfile.write (output)
 
     def send_ipp_statuscode (self, statuscode, message=None):
         req = self.ipprequest
