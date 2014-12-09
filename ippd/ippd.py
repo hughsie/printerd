@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.client import BAD_REQUEST, INTERNAL_SERVER_ERROR, NOT_IMPLEMENTED
 from socketserver import ForkingMixIn
 import os
 import socket
@@ -126,11 +127,11 @@ class IPPServer(BaseHTTPRequestHandler):
 
     def do_POST (self):
         if not 'content-length' in self.headers:
-            self.send_error (501, "Empty request")
+            self.send_error (NOT_IMPLEMENTED, "Empty request")
             return
 
         if self.headers.get ('content-type') != "application/ipp":
-            self.send_error (501, "Bad content type")
+            self.send_error (BAD_REQUEST, "Bad content type")
             return
 
         try:
@@ -144,7 +145,7 @@ class IPPServer(BaseHTTPRequestHandler):
         try:
             req.readIO (bytes.read)
         except:
-            self.send_error (400)
+            self.send_error (BAD_REQUEST)
             return
 
         self.ipprequest = req
@@ -156,14 +157,14 @@ class IPPServer(BaseHTTPRequestHandler):
             method = getattr (self, method_name)
         except (KeyError, AttributeError):
             # Not implemented
-            self.send_error (501)
+            self.send_error (NOT_IMPLEMENTED)
             return
 
         try:
             method ()
         except:
             # Internal error
-            self.send_error (500)
+            self.send_error (INTERNAL_SERVER_ERROR)
             raise
 
         # Send response
