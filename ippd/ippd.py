@@ -85,6 +85,7 @@ class PdClient:
     Class for getting objects using printerd.Client.
     """
 
+    PATH_MANAGER = "/org/freedesktop/printerd/Manager"
     IFACE_PRINTERD_PREFIX = "org.freedesktop.printerd"
     IFACE_MANAGER = IFACE_PRINTERD_PREFIX + ".Manager"
     IFACE_DEVICE  = IFACE_PRINTERD_PREFIX + ".Device"
@@ -94,10 +95,11 @@ class PdClient:
     def __init__ (self):
         self.client = printerd.Client.new_sync ()
         self.object_manager = self.client.get_object_manager ()
-        manager = self.object_manager.\
-                  get_object ("/org/freedesktop/printerd/Manager").\
-                  get_interface (self.IFACE_MANAGER)
-        self.manager = manager
+
+    def get_manager (self):
+        return self.object_manager.\
+            get_object (self.PATH_MANAGER).\
+            get_interface (self.IFACE_MANAGER)
 
     def get_printer (self, objpath):
         return self.object_manager.\
@@ -117,10 +119,6 @@ class IPPServer(BaseHTTPRequestHandler):
     IPP_METHODS = {}
 
     protocol_version = "HTTP/1.1"
-
-    def __init__ (self, *args, **kwds):
-        self.printerd = None
-        super ().__init__ (*args, **kwds)
 
     def read_specified (self, length):
         data = []
@@ -235,10 +233,8 @@ class IPPServer(BaseHTTPRequestHandler):
         self.wfile.flush ()
 
     def get_printerd (self):
-        if self.printerd:
-            return
-
         self.printerd = PdClient ()
+        return self.printerd
 
     def send_ipp_response (self, req):
         req.state = cups.IPP_IDLE
@@ -272,8 +268,8 @@ class PdIPPServer(IPPServer):
 
     def ipp_CUPS_Get_Printers (self):
         req = self.ipprequest
-        self.get_printerd ()
-        printers = self.printerd.manager.call_get_printers_sync ()
+        manager = self.get_printerd ().get_manager ()
+        printers = manager.call_get_printers_sync ()
         if len (printers) > 0:
             req.statuscode = cups.IPP_OK
         else:
