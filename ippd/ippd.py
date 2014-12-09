@@ -177,9 +177,15 @@ class IPPServer(BaseHTTPRequestHandler):
         self.log_message ("Response: %r" % req.attributes)
         req.writeIO (self.wfile.write)
 
-    def send_ipp_error (self, statuscode):
+    def send_ipp_statuscode (self, statuscode, message=None):
         req = self.ipprequest
         req.statuscode = statuscode
+        if message:
+            req.add(cups.IPPAttribute (cups.IPP_TAG_OPERATION,
+                                       cups.IPP_TAG_TEXT,
+                                       "status-message",
+                                       message))
+
         self.send_ipp_response (req)
 
 class PdIPPServer(IPPServer):
