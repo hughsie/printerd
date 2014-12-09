@@ -66,7 +66,7 @@ class Attributes(dict):
     """
 
     def __init__ (self, attributes):
-        super ().__init__ (self)
+        super ().__init__ ()
         for attribute in attributes:
             self[attribute.name] = attribute
 
@@ -120,7 +120,7 @@ class IPPServer(BaseHTTPRequestHandler):
 
     def __init__ (self, *args, **kwds):
         self.printerd = None
-        super (BaseHTTPRequestHandler, self).__init__ (*args, **kwds)
+        super ().__init__ (*args, **kwds)
 
     def read_specified (self, length):
         data = []
@@ -308,8 +308,7 @@ class SocketInheritingIPPServer(ForkingHTTPServer):
     systemd.
     """
     def __init__ (self, address_info, handler, fd, bind_and_activate=True):
-        super ().__init__ (self, address_info, handler,
-                           bind_and_activate=False)
+        super ().__init__ (address_info, handler, bind_and_activate=False)
         self.socket = socket.fromfd (fd, self.address_family, self.socket_type)
         if bind_and_activate:
             # Only activate, as systemd provides ready-bound sockets.
