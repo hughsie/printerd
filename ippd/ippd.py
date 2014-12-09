@@ -149,8 +149,8 @@ class IPPServer(BaseHTTPRequestHandler):
 
         self.ipprequest = req
         op = req.operation
-        self.log_message ("%s: %s" % (cups.ippOpString (op),
-                                      repr (req.attributes)))
+        self.log_message ("%s: %r" % (cups.ippOpString (op),
+                                      req.attributes))
         try:
             method_name = self.IPP_METHODS[op]
             method = getattr (self, method_name)
@@ -174,7 +174,7 @@ class IPPServer(BaseHTTPRequestHandler):
         self.send_header ("Content-type", "application/ipp")
         self.end_headers ()
         req.state = cups.IPP_IDLE
-        self.log_message ("Response: %s" % repr (req.attributes))
+        self.log_message ("Response: %r" % req.attributes)
         req.writeIO (self.wfile.write)
 
     def send_ipp_error (self, statuscode):
