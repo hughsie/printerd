@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from http.client import BAD_REQUEST, INTERNAL_SERVER_ERROR, NOT_IMPLEMENTED
+from http.client import IncompleteRead
 from socketserver import ForkingMixIn
 import os
 import socket
@@ -115,15 +116,51 @@ class IPPServer(BaseHTTPRequestHandler):
 
     IPP_METHODS = {}
 
+    protocol_version = "HTTP/1.1"
+
     def __init__ (self, *args, **kwds):
         self.printerd = None
         super (BaseHTTPRequestHandler, self).__init__ (*args, **kwds)
 
-    def get_printerd (self):
-        if self.printerd:
-            return
+    def read_specified (self, length):
+        data = []
+        while length > 0:
+            part = self.rfile.read (length)
+            if not part:
+                raise IncompleteRead (b''.join (data), length)
+            data.append (part)
+            length -= len (part)
 
-        self.printerd = PdClient ()
+        return b''.join (data)
+
+    def read_chunk_size (self):
+        line = self.rfile.readline ()
+        ext = line.find (b';')
+        if ext != -1:
+            line = line[:ext]
+
+        return int (line, base=16)
+
+    def read_chunk (self, chunk_size):
+        data = self.read_specified (chunk_size)
+
+        # Discard CRLF
+        self.read_specified (2)
+
+        return data
+
+    def read_all_chunks (self):
+        data = []
+        chunk_size = None
+        while True:
+            chunk_size = self.read_chunk_size ()
+            if chunk_size == 0:
+                break
+
+            data.append (self.read_chunk (chunk_size))
+
+        # read and discard trailer
+        return b''.join (data)
 
     def do_POST (self):
         if not 'content-length' in self.headers:
@@ -134,17 +171,44 @@ class IPPServer(BaseHTTPRequestHandler):
             self.send_error (BAD_REQUEST, "Bad content type")
             return
 
-        try:
-            length = int (self.headers.get ('content-length'))
-        except (TypeError, ValueError):
-            length = 0
+        transfer_encoding = self.headers.get ('transfer-encoding')
+        chunked = (transfer_encoding and
+                   transfer_encoding.lower () == 'chunked')
 
-        data = self.rfile.read (length)
-        bytes = BytesIO (data)
+        if not chunked:
+            try:
+                length = int (self.headers['content-length'])
+                if length < 0:
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                self.send_error (BAD_REQUEST, "Content-Length not specified")
+                return
+
+            try:
+                data = self.read_specified (length)
+            except IncompleteRead as e:
+                self.send_error (BAD_REQUEST, e.message)
+                return
+        else:
+            # Read all chunks.
+            try:
+                data = self.read_all_chunks ()
+            except IncompleteRead as e:
+                self.send_error (BAD_REQUEST, e.message)
+                return
+            except ValueError:
+                self.send_error (BAD_REQUEST)
+                return
+
         req = cups.IPPRequest ()
+        bytes = BytesIO (data)
         try:
-            req.readIO (bytes.read)
+            status = req.readIO (bytes.read)
         except:
+            self.send_error (BAD_REQUEST)
+            return
+
+        if status == cups.IPP_ERROR:
             self.send_error (BAD_REQUEST)
             return
 
@@ -169,6 +233,12 @@ class IPPServer(BaseHTTPRequestHandler):
 
         # Send response
         self.wfile.flush ()
+
+    def get_printerd (self):
+        if self.printerd:
+            return
+
+        self.printerd = PdClient ()
 
     def send_ipp_response (self, req):
         req.state = cups.IPP_IDLE
