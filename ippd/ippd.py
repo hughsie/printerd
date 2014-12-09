@@ -211,6 +211,7 @@ class IPPServer(BaseHTTPRequestHandler):
             return
 
         self.ipprequest = req
+        self.request_file = bytes
         op = req.operation
         self.log_message ("%s: %r" % (cups.ippOpString (op),
                                       req.attributes))
