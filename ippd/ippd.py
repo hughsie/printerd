@@ -44,7 +44,7 @@ class ObjectAddress:
                                   self._id)
 
     def get_path (self):
-        return self.DBUS_PATH_PREFIX + self._id
+        return "%s%s" % (self.DBUS_PATH_PREFIX, self._id)
 
     def get_id (self):
         return self._id
