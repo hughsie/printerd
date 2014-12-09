@@ -581,11 +581,12 @@ pd_printer_impl_get_next_job (PdPrinterImpl *printer)
  * pd_printer_impl_get_final_content_type:
  * @printer: A #PdPrinterImpl.
  *
- * Get the next job which should be processed, or NULL if there is no
- * suitable job.
+ * Get the final content type, i.e. the content type required by the
+ * PPD. The PPD may specify a further filter for processing data
+ * before it is sent to the backend.
  *
  * Returns: (transfer none): The final content type. Do not free the
- * returned value, it belonds to @printer.
+ * returned value, it belongs to @printer.
  */
 const gchar *
 pd_printer_impl_get_final_content_type (PdPrinterImpl *printer)
