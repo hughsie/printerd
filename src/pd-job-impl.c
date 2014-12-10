@@ -1785,10 +1785,16 @@ pd_job_impl_add_document (PdJob *_job,
 	if (job->document_fd < 0) {
 		job_debug (PD_JOB (job), " failed to get file descriptor: %s",
 			   error ? error->message : "(no error message)");
-		g_dbus_method_invocation_return_gerror (invocation,
-							error);
-		if (error)
+		if (error) {
+			g_dbus_method_invocation_return_gerror (invocation,
+								error);
 			g_error_free (error);
+		} else
+			g_dbus_method_invocation_return_error \
+				(invocation,
+				 PD_ERROR,
+				 PD_ERROR_FAILED,
+				 N_("Bad AddDocumentCall"));
 		goto out;
 	}
 
