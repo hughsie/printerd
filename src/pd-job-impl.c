@@ -1130,6 +1130,7 @@ run_cupsfilter (PdJobImpl *job,
 static gboolean
 pd_job_impl_run_process (PdJobImpl *job,
 			 struct _PdJobProcess *jp,
+			 const gchar *ppd,
 			 GError **error)
 {
 	gboolean ret = FALSE;
@@ -1198,9 +1199,10 @@ pd_job_impl_run_process (PdJobImpl *job,
 		argv[7] = NULL;
 	}
 
-	envp = g_malloc0 (sizeof (char *) * 2);
+	envp = g_malloc0 (sizeof (char *) * 3);
 	envp[0] = g_strdup_printf ("DEVICE_URI=%s", uri);
-	envp[1] = NULL;
+	envp[1] = g_strdup_printf ("PPD=%s", ppd);
+	envp[2] = NULL;
 
 	job_debug (PD_JOB (job), "Executing %s", argv[0]);
 	for (s = envp; *s; s++)
@@ -1471,7 +1473,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	     filter;
 	     filter = g_list_next (filter)) {
 		jp = filter->data;
-		if (!pd_job_impl_run_process (job, jp, &error)) {
+		if (!pd_job_impl_run_process (job, jp, driver, &error)) {
 			job_warning (PD_JOB (job), "Running %s: %s",
 				     jp->what, error->message);
 			g_error_free (error);
@@ -1535,6 +1537,14 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	GError *error = NULL;
 	GIOChannel *channel;
 	struct _PdJobProcess *jp;
+	PdPrinter *printer;
+	const gchar *driver = NULL;
+
+	printer = pd_job_impl_get_printer (job);
+	if (printer) {
+		driver = pd_printer_get_driver (printer);
+		g_object_unref (printer);
+	}
 
 	g_mutex_lock (&job->lock);
 	g_object_freeze_notify (G_OBJECT (job));
@@ -1552,7 +1562,7 @@ pd_job_impl_start_sending (PdJobImpl *job)
 	job->pending_job_state = PD_JOB_STATE_COMPLETED;
 
 	/* Run backend */
-	if (!pd_job_impl_run_process (job, job->backend, &error)) {
+	if (!pd_job_impl_run_process (job, job->backend, driver, &error)) {
 		job_warning (PD_JOB (job), "Running backend: %s",
 			     error->message);
 		g_error_free (error);
