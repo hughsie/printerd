@@ -369,11 +369,7 @@ pd_daemon_check_authorization_sync (PdDaemon *daemon,
 		next_action_id = va_arg (va_args, const gchar *);
 		if (!next_action_id)
 			flags = POLKIT_CHECK_AUTHORIZATION_FLAGS_ALLOW_USER_INTERACTION;
-		if (error) {
-			g_error_free (error);
-			error = NULL;
-		}
-
+		g_clear_error (&error);
 		result = polkit_authority_check_authorization_sync (daemon->authority,
 								    subject,
 								    action_id,
