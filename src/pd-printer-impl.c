@@ -82,8 +82,9 @@ static void pd_printer_impl_job_state_notify (PdJob *job);
 static void pd_printer_impl_job_add_state_reason (PdJobImpl *job,
 						  const gchar *reason,
 						  PdPrinterImpl *printer);
-static void pd_printer_impl_job_remove_state_reason (PdPrinterImpl *printer,
-						     const gchar *reason);
+static void pd_printer_impl_job_remove_state_reason (PdJobImpl *job,
+						     const gchar *reason,
+						     PdPrinterImpl *printer);
 
 G_DEFINE_TYPE_WITH_CODE (PdPrinterImpl, pd_printer_impl, PD_TYPE_PRINTER_SKELETON,
 			 G_IMPLEMENT_INTERFACE (PD_TYPE_PRINTER, pd_printer_iface_init));
@@ -745,9 +746,11 @@ pd_printer_impl_job_add_state_reason (PdJobImpl *job,
  * Remove a state reason from printer-state-reasons
  */
 static void
-pd_printer_impl_job_remove_state_reason (PdPrinterImpl *printer,
-					 const gchar *reason)
+pd_printer_impl_job_remove_state_reason (PdJobImpl *job,
+					 const gchar *reason,
+					 PdPrinterImpl *printer)
 {
+	g_return_if_fail (PD_IS_JOB_IMPL (job));
 	g_return_if_fail (PD_IS_PRINTER_IMPL (printer));
 	pd_printer_impl_remove_state_reason (printer, reason);
 }
