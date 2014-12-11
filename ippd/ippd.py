@@ -4,10 +4,12 @@ from http.client import BAD_REQUEST, INTERNAL_SERVER_ERROR, NOT_IMPLEMENTED
 from http.client import IncompleteRead
 from socketserver import ForkingMixIn
 import os
+import select
 import socket
 import cups
 from io import BytesIO
 from gi.repository import printerd
+from gi.repository import GLib
 
 cups.require ("1.9.69")
 
@@ -158,10 +160,6 @@ class IPPServer(BaseHTTPRequestHandler):
         return b''.join (data)
 
     def do_POST (self):
-        if not 'content-length' in self.headers:
-            self.send_error (NOT_IMPLEMENTED, "Empty request")
-            return
-
         if self.headers.get ('content-type') != "application/ipp":
             self.send_error (BAD_REQUEST, "Bad content type")
             return
@@ -264,6 +262,7 @@ class PdIPPServer(IPPServer):
 
     IPP_METHODS = {
         cups.IPP_OP_CUPS_GET_PRINTERS:  "ipp_CUPS_Get_Printers",
+        cups.IPP_OP_CREATE_JOB:         "ipp_Create_Job",
         cups.IPP_OP_CANCEL_JOB:         "ipp_Cancel_Job",
     }
 
@@ -294,6 +293,43 @@ class PdIPPServer(IPPServer):
                                         "device-uri",
                                         printer.props.device_uris[0]))
 
+        self.send_ipp_response (req)
+
+    def ipp_Create_Job (self):
+        attrs = Attributes (self.ipprequest.attributes)
+        uri = attrs.get_value ('printer-uri')
+        if not uri:
+            self.send_error (400, "No printer-uri attribute")
+            return
+
+        objpath = PrinterAddress (uri=uri).get_path ()
+        self.get_printerd ()
+        try:
+            printer = self.printerd.get_printer (objpath)
+        except AttributeError:
+            self.send_ipp_statuscode (cups.IPP_NOT_FOUND,
+                                      "Specified printer does not exist")
+            return
+
+        self.log_message ("printer-uri: %s" % attrs.get ('printer-uri'))
+        options = GLib.Variant ("a{sv}", {})
+        name = attrs.get_value ('job-name', d='')
+        jobattrs = GLib.Variant ("a{sv}", {})
+        try:
+            jobpath, unsupported = printer.call_create_job_sync (options,
+                                                                 name,
+                                                                 jobattrs,
+                                                                 None)
+        except GLib.GError as e:
+            self.send_ipp_statuscode (cups.IPP_NOT_POSSIBLE, e.message)
+            return
+
+        req = cups.IPPRequest ()
+        jobid = JobAddress (path=jobpath).get_id ()
+        req.add (cups.IPPAttribute (cups.IPP_TAG_JOB,
+                                    cups.IPP_TAG_INTEGER,
+                                    "job-id",
+                                    jobid))
         self.send_ipp_response (req)
 
     def ipp_Cancel_Job (self):
