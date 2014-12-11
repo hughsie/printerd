@@ -2,7 +2,6 @@
 * Service termination when no clients or jobs running
 * D-Bus interface needs some tweaks to allow IPP to run on top of it
   (e.g. handling option conflicts)
-* Running filters
 * Device scanning
 * Prevent writes to read-only attributes
 * Driver selection/assignment, e.g.
