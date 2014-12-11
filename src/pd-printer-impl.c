@@ -61,6 +61,7 @@ struct _PdPrinterImpl
 
 	gchar			*id;
 	gchar			*final_content_type;
+	gchar			*final_filter;
 
 	GMutex			 lock;
 };
@@ -136,6 +137,9 @@ pd_printer_impl_finalize (GObject *object)
 	g_free (printer->id);
 	if (printer->final_content_type)
 		g_free (printer->final_content_type);
+
+	if (printer->final_filter)
+		g_free (printer->final_filter);
 
 	g_mutex_clear (&printer->lock);
 
@@ -339,6 +343,7 @@ pd_printer_impl_set_driver (PdPrinterImpl *printer,
 	ppd_file_t *ppd;
 	ppd_attr_t *cupsFilter;
 	gchar *best_format = NULL;
+	gchar *best_format_filter = NULL;
 	int best_cost;
 
 	if (driver == NULL)
@@ -363,12 +368,17 @@ pd_printer_impl_set_driver (PdPrinterImpl *printer,
 			       tokens[0], cost);
 		if (!best_format) {
 			best_format = g_strdup (tokens[0]);
+			best_format_filter = g_strdup (tokens[2]);
 			best_cost = cost;
 		} else if (cost < best_cost) {
 			if (best_format)
 				g_free (best_format);
 
+			if (best_format_filter)
+				g_free (best_format_filter);
+
 			best_format = g_strdup (tokens[0]);
+			best_format_filter = g_strdup (tokens[2]);
 			best_cost = cost;
 		}
 	next:
@@ -383,9 +393,15 @@ pd_printer_impl_set_driver (PdPrinterImpl *printer,
 	if (printer->final_content_type)
 		g_free (printer->final_content_type);
 
-	printer_debug (PD_PRINTER (printer), "Set final content type to %s",
-		       best_format);
+	if (printer->final_filter)
+		g_free (printer->final_filter);
+
+	printer_debug (PD_PRINTER (printer),
+		       "Set final content type to %s (input to %s)",
+		       best_format,
+		       best_format_filter);
 	printer->final_content_type = best_format;
+	printer->final_filter = best_format_filter;
 
 	g_mutex_unlock (&printer->lock);
 	ppdClose (ppd);
@@ -579,20 +595,50 @@ pd_printer_impl_get_next_job (PdPrinterImpl *printer)
 }
 
 /**
- * pd_printer_impl_get_final_content_type:
+ * pd_printer_impl_dup_final_content_type:
  * @printer: A #PdPrinterImpl.
+ * @content_type: (out): Content type.
+ * @filter: (out): Final filter for processing content type.
  *
  * Get the final content type, i.e. the content type required by the
  * PPD. The PPD may specify a further filter for processing data
  * before it is sent to the backend.
- *
- * Returns: (transfer none): The final content type. Do not free the
- * returned value, it belongs to @printer.
  */
-const gchar *
-pd_printer_impl_get_final_content_type (PdPrinterImpl *printer)
+gboolean
+pd_printer_impl_dup_final_content_type (PdPrinterImpl *printer,
+					gchar **content_type,
+					gchar **filter,
+					GError **error)
 {
-	return printer->final_content_type;
+	gchar *final_content_type;
+	gchar *final_filter;
+
+	g_mutex_lock (&printer->lock);
+	if (printer->final_content_type)
+		final_content_type = g_strdup (printer->final_content_type);
+	if (printer->final_filter)
+		final_filter = g_strdup (printer->final_filter);
+	g_mutex_unlock (&printer->lock);
+
+	if (!final_content_type || !final_filter)
+		goto fail;
+
+	*content_type = final_content_type;
+	*filter = final_filter;
+
+	return TRUE;
+
+fail:
+	if (final_content_type)
+		g_free (final_content_type);
+
+	if (final_filter)
+		g_free (final_filter);
+
+	*error = g_error_new (PD_ERROR,
+			      PD_ERROR_FAILED,
+			      "Memory allocation failure");
+	return FALSE;
 }
 
 /* ------------------------------------------------------------------ */

@@ -77,6 +77,9 @@ struct _PdJobProcess
 
 	gint		 child_fd[5];
 	gint		 parent_fd[5];
+
+	/* only for cupsfilter */
+	gchar		*final_content_type;
 };
 
 /**
@@ -177,6 +180,9 @@ pd_job_impl_finalize_jp (gpointer data)
 			g_io_channel_unref (jp->channel[i]);
 	}
 
+	if (jp->final_content_type)
+		g_free (jp->final_content_type);
+
 	g_free (jp);
 }
 
@@ -270,6 +276,7 @@ pd_job_impl_init_jp (PdJobImpl *job,
 		jp->child_fd[i] = -1;
 		jp->parent_fd[i] = -1;
 	}
+	jp->final_content_type = NULL;
 }
 
 static void
@@ -1067,9 +1074,9 @@ run_cupsfilter (PdJobImpl *job,
 		GPid *child_pid,
 		GError **error)
 {
+	struct _PdJobProcess *jp = user_data;
 	PdPrinter *printer;
 	const gchar *driver;
-	const gchar *final_content_type;
 	gboolean ret;
 	char **argv;
 	gchar **s;
@@ -1090,15 +1097,6 @@ run_cupsfilter (PdJobImpl *job,
 		return FALSE;
 	}
 
-	final_content_type = pd_printer_impl_get_final_content_type (PD_PRINTER_IMPL (printer));
-	if (final_content_type == NULL) {
-		*error = g_error_new (PD_ERROR,
-				      PD_ERROR_FAILED,
-				      "no final content type for printer");
-		g_object_unref (printer);
-		return FALSE;
-	}
-
 	g_object_unref (printer);
 
 	argv = g_malloc (sizeof (char *) * 8);
@@ -1108,7 +1106,7 @@ run_cupsfilter (PdJobImpl *job,
 	argv[3] = g_strdup ("-i");
 	argv[4] = g_strdup ("application/vnd.cups-pdf");
 	argv[5] = g_strdup ("-m");
-	argv[6] = g_strdup (final_content_type);
+	argv[6] = g_strdup (jp->final_content_type);
 	argv[7] = NULL;
 
 	for (s = argv + 1; *s; s++)
@@ -1307,6 +1305,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	gint document_fd = -1;
 	GList *filter, *next_filter;
 	const gchar *driver;
+	gchar *final_filter = NULL;
 
 	if (job->filterchain) {
 		job_warning (PD_JOB (job), "Already processing!");
@@ -1365,7 +1364,34 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		jp->cmd = g_strdup ("(cupsfilter)");
 		jp->what = "transformer";
 
+		if (!pd_printer_impl_dup_final_content_type (
+			    PD_PRINTER_IMPL (printer),
+			    &jp->final_content_type,
+			    &final_filter,
+			    &error)) {
+			job_warning (PD_JOB (job),
+				     "Error getting final content type: %s",
+				     error ? error->message :
+				     "(no error message)");
+			g_clear_error (&error);
+			goto fail_setup;
+		}
+
 		/* Add the transformer to the filter chain */
+		job->filterchain = g_list_insert (job->filterchain, jp, -1);
+	}
+
+	if (final_filter && strcmp (final_filter, "-")) {
+		/* There's another filter to run afterwards, specified
+		 * in the PPD with a *cupsFilter: line */
+		jp = g_malloc0 (sizeof (struct _PdJobProcess));
+		pd_job_impl_init_jp (job, jp);
+		jp->type = FILTERCHAIN_CMD;
+		jp->cmd = g_strdup_printf ("/usr/lib/cups/filter/%s",
+					   final_filter);
+		jp->what = "final-filter";
+
+		/* Add the final filter to the filter chain */
 		job->filterchain = g_list_insert (job->filterchain, jp, -1);
 	}
 
@@ -1514,6 +1540,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	 * buffer until the backend has started. */
 
  out:
+	if (final_filter)
+		g_free (final_filter);
 	if (printer)
 		g_object_unref (printer);
 	g_free (scheme);
