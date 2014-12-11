@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -u
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from http.client import BAD_REQUEST, INTERNAL_SERVER_ERROR, NOT_IMPLEMENTED
 from http.client import IncompleteRead
