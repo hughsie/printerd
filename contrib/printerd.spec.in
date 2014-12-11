@@ -49,9 +49,16 @@ find %{buildroot} -name '*.a' -exec rm -f {} ';'
 
 %find_lang %{name}
 
-%post -p /sbin/ldconfig
+%post
+/sbin/ldconfig
+%systemd_post printerd.service ippd.socket ippd.service
 
-%postun -p /sbin/ldconfig
+%preun
+%systemd_preun printerd.service ippd.socket ippd.service
+
+%postun
+%systemd_postun_with_restart printerd.service ippd.socket ippd.service
+/sbin/ldconfig
 
 %files -f %{name}.lang
 %defattr(-,root,root,-)
