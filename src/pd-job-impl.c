@@ -1433,8 +1433,8 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	filter = g_list_first (job->filterchain);
 	for (next_filter = g_list_next (filter);
 	     next_filter;
-	     next_filter = g_list_next (next_filter),
-		     filter = next_filter) {
+	     filter = next_filter,
+		     next_filter = g_list_next (next_filter)) {
 		gint pipe_fd[2];
 		struct _PdJobProcess *nextjp;
 
