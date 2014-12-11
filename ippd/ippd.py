@@ -85,7 +85,6 @@ class PdClient:
     Class for getting objects using printerd.Client.
     """
 
-    PATH_MANAGER = "/org/freedesktop/printerd/Manager"
     IFACE_PRINTERD_PREFIX = "org.freedesktop.printerd"
     IFACE_MANAGER = IFACE_PRINTERD_PREFIX + ".Manager"
     IFACE_DEVICE  = IFACE_PRINTERD_PREFIX + ".Device"
@@ -97,9 +96,7 @@ class PdClient:
         self.object_manager = self.client.get_object_manager ()
 
     def get_manager (self):
-        return self.object_manager.\
-            get_object (self.PATH_MANAGER).\
-            get_interface (self.IFACE_MANAGER)
+        return self.client.get_manager ()
 
     def get_printer (self, objpath):
         return self.object_manager.\
