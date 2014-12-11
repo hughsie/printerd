@@ -6,10 +6,12 @@ from socketserver import ForkingMixIn
 import os
 import select
 import socket
+from tempfile import TemporaryFile
 import cups
 from io import BytesIO
 from gi.repository import printerd
 from gi.repository import GLib
+from gi.repository import Gio
 
 cups.require ("1.9.69")
 
@@ -263,6 +265,7 @@ class PdIPPServer(IPPServer):
     IPP_METHODS = {
         cups.IPP_OP_CUPS_GET_PRINTERS:  "ipp_CUPS_Get_Printers",
         cups.IPP_OP_CREATE_JOB:         "ipp_Create_Job",
+        cups.IPP_OP_SEND_DOCUMENT:      "ipp_Send_Document",
         cups.IPP_OP_CANCEL_JOB:         "ipp_Cancel_Job",
     }
 
@@ -331,6 +334,50 @@ class PdIPPServer(IPPServer):
                                     "job-id",
                                     jobid))
         self.send_ipp_response (req)
+
+    def ipp_Send_Document (self):
+        attrs = Attributes (self.ipprequest.attributes)
+        jobid = attrs.get_value ('job-id')
+        if jobid:
+            jobpath = JobAddress (id=jobid).get_path ()
+        else:
+            uri = attrs.get_value ('job-uri')
+            if uri:
+                jobpath = JobAddress (uri=uri).get_path ()
+            else:
+                self.send_error (BAD_REQUEST, "No job-id or job-uri attribute")
+                return
+
+        self.get_printerd ()
+        try:
+            job = self.printerd.get_job (jobpath)
+        except AttributeError:
+            self.send_ipp_statuscode (cups.IPP_NOT_FOUND,
+                                      "Specified job does not exist")
+            return
+
+        with TemporaryFile (prefix='ippd') as tmpfile:
+            tmpfile.write (self.request_file.read ())
+            tmpfile.seek (0)
+            options = GLib.Variant ("a{sv}", {})
+            file_descriptor = GLib.Variant ("h", 0)
+            fd_list = Gio.UnixFDList.new_from_array ([tmpfile.fileno ()])
+            try:
+                job.call_add_document_sync (options, file_descriptor,
+                                            fd_list, None)
+            except GLib.Error as e:
+                self.send_ipp_statuscode (cups.IPP_NOT_POSSIBLE, e.message)
+                return
+
+        if attrs.get ('last-document', True):
+            options = GLib.Variant ("a{sv}", {})
+            try:
+                job.call_start_sync (options, None)
+            except GLib.Error as e:
+                self.send_ipp_statuscode (cups.IPP_NOT_POSSIBLE, e.message)
+                return
+
+        self.send_ipp_statuscode (cups.IPP_OK)
 
     def ipp_Cancel_Job (self):
         attrs = Attributes (self.ipprequest.attributes)
