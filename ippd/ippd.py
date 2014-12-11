@@ -262,7 +262,10 @@ class PdIPPServer(IPPServer):
     Class providing implementations of IPP operations.
     """
 
-    IPP_METHODS = { cups.IPP_OP_CUPS_GET_PRINTERS: "ipp_CUPS_Get_Printers" }
+    IPP_METHODS = {
+        cups.IPP_OP_CUPS_GET_PRINTERS:  "ipp_CUPS_Get_Printers",
+        cups.IPP_OP_CANCEL_JOB:         "ipp_Cancel_Job",
+    }
 
     def ipp_CUPS_Get_Printers (self):
         req = self.ipprequest
@@ -292,6 +295,36 @@ class PdIPPServer(IPPServer):
                                         printer.props.device_uris[0]))
 
         self.send_ipp_response (req)
+
+    def ipp_Cancel_Job (self):
+        attrs = Attributes (self.ipprequest.attributes)
+        jobid = attrs.get_value ('job-id')
+        if jobid:
+            jobpath = JobAddress (id=jobid).get_path ()
+        else:
+            uri = attrs.get_value ('job-uri')
+            if uri:
+                jobpath = JobAddress (uri=uri).get_path ()
+            else:
+                self.send_error (BAD_REQUEST, "No job-id or job-uri attribute")
+                return
+
+        self.get_printerd ()
+        try:
+            job = self.printerd.get_job (jobpath)
+        except AttributeError:
+            self.send_ipp_statuscode (cups.IPP_NOT_FOUND,
+                                      "Specified job does not exist")
+            return
+
+        options = GLib.Variant ("a{sv}", {})
+        try:
+            job.call_cancel_sync (options, None)
+        except GLib.Error as e:
+            self.send_ipp_statuscode (cups.IPP_NOT_POSSIBLE, e.message)
+            return
+
+        self.send_ipp_statuscode (cups.IPP_OK)
 
 class ForkingHTTPServer(ForkingMixIn, HTTPServer):
     pass
