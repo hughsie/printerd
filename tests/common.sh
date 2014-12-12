@@ -38,7 +38,8 @@ wc -l < "${SESSION_LOG}" > "${BOOKMARK}"
 simple_ppd () {
     tmp="$(mktemp /tmp/printerd.XXXXXXXXXX)"
     # Create a simple PPD.
-    cat >"$tmp" <<"EOF"
+    CUPSRASTER="application/vnd.cups-raster 0 -"
+    cat <<"EOF" | sed -e "s,@CUPSFILTER@,${1-${CUPSRASTER}}," >"$tmp"
 *PPD-Adobe: "4.3"
 *FormatVersion:	"4.3"
 *FileVersion:	"1.1"
@@ -47,7 +48,7 @@ simple_ppd () {
 *PCFileName:	"CUPSFILTER.PPD"
 *Manufacturer:	"Generic"
 *Product:	"(Generic Printer)"
-*cupsFilter:    "application/vnd.cups-raster 0 -"
+*cupsFilter:    "@CUPSFILTER@"
 *ModelName:     "Generic Printer"
 *ShortNickName: "Generic Printer"
 *NickName:      "Generic Printer"

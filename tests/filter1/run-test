@@ -2,9 +2,9 @@
 
 . "${top_srcdir-.}"/tests/common.sh
 
-# Test "file:" output
+# Test filtering to aplication/vnd.cups-raster
 
-PPD="$(simple_ppd)"
+PPD="$(simple_ppd "application/vnd.cups-raster 0 -")"
 INPUT_FILE="$(sample_pdf)"
 FILE_TARGET="$(mktemp /tmp/printerd.XXXXXXXXX)"
 function finish {
@@ -19,7 +19,7 @@ result=$(gdbus call --session \
 	       --object-path $PD_PATH/Manager \
 	       --method $PD_IFACE.Manager.CreatePrinter \
 	       "{'driver-name':<'${PPD}'>}" \
-	       "cupsfilter" \
+	       "filter1" \
 	       "printer description" \
 	       "printer location" \
 	       "['file://${FILE_TARGET}']" \
@@ -38,7 +38,7 @@ result=$(gdbus call --session \
 	       --object-path $objpath \
 	       --method $PD_IFACE.Printer.CreateJob \
 	       "{}" \
-	       'cupsfilter' \
+	       'filter1' \
 	       '{}')
 if ! diff -u - <(printf "%s\n" "$result" | sed -e 's,[0-9]\+,X,') <<"EOF"
 (objectpath '/org/freedesktop/printerd/job/X', @a{sv} {})

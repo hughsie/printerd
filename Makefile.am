@@ -70,7 +70,8 @@ AFTER_GETPRINTERS_TESTS = \
 	tests/job2/run-test \
 	tests/job3/run-test \
 	tests/job4/run-test \
-	tests/cupsfilter/run-test \
+	tests/filter1/run-test \
+	tests/filter2/run-test \
 	$(INTROSPECTION_TESTS)
 
 # Some tests have to run at the beginning.
