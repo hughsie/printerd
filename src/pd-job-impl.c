@@ -1353,7 +1353,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 	jp->what = "arranger";
 
 	/* Add the arranger to the filter chain */
-	job->filterchain = g_list_insert (job->filterchain, jp, -1);
+	job->filterchain = g_list_append (job->filterchain, jp);
 
 	driver = pd_printer_get_driver (printer);
 	if (driver && *driver) {
@@ -1378,7 +1378,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		}
 
 		/* Add the transformer to the filter chain */
-		job->filterchain = g_list_insert (job->filterchain, jp, -1);
+		job->filterchain = g_list_append (job->filterchain, jp);
 	}
 
 	if (final_filter && strcmp (final_filter, "-")) {
@@ -1392,7 +1392,7 @@ pd_job_impl_start_processing (PdJobImpl *job)
 		jp->what = "final-filter";
 
 		/* Add the final filter to the filter chain */
-		job->filterchain = g_list_insert (job->filterchain, jp, -1);
+		job->filterchain = g_list_append (job->filterchain, jp);
 	}
 
 	/* Set up a pipe to write to the backend's stdin */
