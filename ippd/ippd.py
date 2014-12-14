@@ -313,7 +313,7 @@ if os.environ.get ('LISTEN_PID') == str (os.getpid ()):
     ippd = SocketInheritingIPPServer (server_address, PdIPPServer,
                                       fd=SYSTEMD_FIRST_SOCKET_FD)
 else:
-    ippd = HTTPServer (server_address, PdIPPServer)
+    ippd = ForkingHTTPServer (server_address, PdIPPServer)
 
 if __name__ == '__main__':
     try:
