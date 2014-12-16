@@ -5,7 +5,7 @@ You can build and run printerd inside a docker container.
 
 Here is to build it:
 
-    $ docker build -t printerd --rm ./docker
+    $ docker build -t printerd --rm .
 
 To run it:
 
