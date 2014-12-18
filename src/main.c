@@ -131,7 +131,9 @@ main (int argc, char **argv)
 		{NULL }
 	};
 
+#if !GLIB_CHECK_VERSION(2,36,0)
 	g_type_init ();
+#endif /* glib < 2.36 */
 
 	/* avoid gvfs (http://bugzilla.gnome.org/show_bug.cgi?id=526454) */
 	if (!g_setenv ("GIO_USE_VFS", "local", TRUE)) {

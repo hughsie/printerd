@@ -513,7 +513,9 @@ main (int argc, char **argv)
 		{ NULL }
 	};
 
+#if !GLIB_CHECK_VERSION(2,36,0)
 	g_type_init ();
+#endif /* glib < 2.36 */
 
 	opt_context = g_option_context_new ("command");
 	g_option_context_set_summary (opt_context,
