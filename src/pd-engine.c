@@ -915,7 +915,7 @@ pd_engine_dup_printer_ids	(PdEngine *engine)
 	g_return_val_if_fail (PD_IS_ENGINE (engine), NULL);
 	g_mutex_lock (&engine->priv->lock);
 	keys = g_hash_table_get_keys (engine->priv->id_to_printer);
-#if 0 && GLIB_CHECK_VERSION(2,34,0)
+#if GLIB_CHECK_VERSION(2,34,0)
 	copy = g_list_copy_deep (keys, (GCopyFunc) g_strdup, NULL);
 #else /* older version */
 	GList *each;
