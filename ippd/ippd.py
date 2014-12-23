@@ -13,7 +13,7 @@ from gi.repository import printerd
 from gi.repository import GLib
 from gi.repository import Gio
 
-cups.require ("1.9.69")
+cups.require ("1.9.70")
 
 if os.getuid() == 0:
     server_address = ('', 631)
@@ -203,7 +203,7 @@ class IPPServer(BaseHTTPRequestHandler):
             self.send_error (BAD_REQUEST)
             return
 
-        if status == cups.IPP_ERROR:
+        if status == cups.IPP_STATE_ERROR:
             self.send_error (BAD_REQUEST)
             return
 
@@ -235,8 +235,10 @@ class IPPServer(BaseHTTPRequestHandler):
         return self.printerd
 
     def send_ipp_response (self, req):
-        req.state = cups.IPP_IDLE
-        self.log_message ("Response: %r" % req.attributes)
+        req.state = cups.IPP_STATE_IDLE
+        self.log_message ("Response: %s %r" %
+                          (cups.ippErrorString (req.statuscode),
+                           req.attributes))
         outstream = BytesIO ()
         req.writeIO (outstream.write)
         output = outstream.getvalue ()
@@ -274,9 +276,9 @@ class PdIPPServer(IPPServer):
         manager = self.get_printerd ().get_manager ()
         printers = manager.call_get_printers_sync ()
         if len (printers) > 0:
-            req.statuscode = cups.IPP_OK
+            req.statuscode = cups.IPP_STATUS_OK
         else:
-            req.statuscode = cups.IPP_NOT_FOUND
+            req.statuscode = cups.IPP_STATUS_ERROR_NOT_FOUND
 
         first = True
         for objpath in printers:
@@ -310,7 +312,7 @@ class PdIPPServer(IPPServer):
         try:
             printer = self.printerd.get_printer (objpath)
         except AttributeError:
-            self.send_ipp_statuscode (cups.IPP_NOT_FOUND,
+            self.send_ipp_statuscode (cups.IPP_STATUS_ERROR_NOT_FOUND,
                                       "Specified printer does not exist")
             return
 
@@ -324,7 +326,8 @@ class PdIPPServer(IPPServer):
                                                                  jobattrs,
                                                                  None)
         except GLib.GError as e:
-            self.send_ipp_statuscode (cups.IPP_NOT_POSSIBLE, e.message)
+            self.send_ipp_statuscode (cups.IPP_STATUS_ERROR_NOT_POSSIBLE,
+                                      e.message)
             return
 
         req = cups.IPPRequest ()
@@ -352,7 +355,7 @@ class PdIPPServer(IPPServer):
         try:
             job = self.printerd.get_job (jobpath)
         except AttributeError:
-            self.send_ipp_statuscode (cups.IPP_NOT_FOUND,
+            self.send_ipp_statuscode (cups.IPP_STATUS_ERROR_NOT_FOUND,
                                       "Specified job does not exist")
             return
 
@@ -366,7 +369,8 @@ class PdIPPServer(IPPServer):
                 job.call_add_document_sync (options, file_descriptor,
                                             fd_list, None)
             except GLib.Error as e:
-                self.send_ipp_statuscode (cups.IPP_NOT_POSSIBLE, e.message)
+                self.send_ipp_statuscode (cups.IPP_STATUS_ERROR_NOT_POSSIBLE,
+                                          e.message)
                 return
 
         if attrs.get ('last-document', True):
@@ -374,10 +378,11 @@ class PdIPPServer(IPPServer):
             try:
                 job.call_start_sync (options, None)
             except GLib.Error as e:
-                self.send_ipp_statuscode (cups.IPP_NOT_POSSIBLE, e.message)
+                self.send_ipp_statuscode (cups.IPP_STATUS_ERROR_NOT_POSSIBLE,
+                                          e.message)
                 return
 
-        self.send_ipp_statuscode (cups.IPP_OK)
+        self.send_ipp_statuscode (cups.IPP_STATUS_OK)
 
     def ipp_Cancel_Job (self):
         attrs = Attributes (self.ipprequest.attributes)
@@ -396,7 +401,7 @@ class PdIPPServer(IPPServer):
         try:
             job = self.printerd.get_job (jobpath)
         except AttributeError:
-            self.send_ipp_statuscode (cups.IPP_NOT_FOUND,
+            self.send_ipp_statuscode (cups.IPP_STATUS_ERROR_NOT_FOUND,
                                       "Specified job does not exist")
             return
 
@@ -404,10 +409,11 @@ class PdIPPServer(IPPServer):
         try:
             job.call_cancel_sync (options, None)
         except GLib.Error as e:
-            self.send_ipp_statuscode (cups.IPP_NOT_POSSIBLE, e.message)
+            self.send_ipp_statuscode (cups.IPP_STATUS_ERROR_NOT_POSSIBLE,
+                                      e.message)
             return
 
-        self.send_ipp_statuscode (cups.IPP_OK)
+        self.send_ipp_statuscode (cups.IPP_STATUS_OK)
 
 class ForkingHTTPServer(ForkingMixIn, HTTPServer):
     pass
