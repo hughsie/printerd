@@ -41,7 +41,7 @@ TESTS_ENVIRONMENT = \
 	SESSION_LOG=$(TEST_SESSION_LOG)
 
 # A rule to start printerd on a session bus of its own
-printerd-session.pid:
+printerd-session.pid: all
 	bash $(top_srcdir)/tests/start-session-service.sh
 
 # A rule to make the test scripts executable
