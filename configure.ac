@@ -97,7 +97,7 @@ GETTEXT_PACKAGE=printerd
 AC_SUBST([GETTEXT_PACKAGE])
 AM_GLIB_GNU_GETTEXT
 AC_DEFINE_UNQUOTED([GETTEXT_PACKAGE],["$GETTEXT_PACKAGE"],[gettext domain])
-ALL_LINGUAS="en_GB en_US es fr id pt_BR pt_PT tr_TR uk vi"
+ALL_LINGUAS="en_GB en_US es fr id pt_BR pt tr uk vi"
 
 # Generate
 #
